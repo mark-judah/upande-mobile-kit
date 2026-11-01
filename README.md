@@ -1,6 +1,6 @@
 # @upande/mobile-kit
 
-> Distributed from GitHub, not npm: no npm account needed. Install with `npm install github:mark-judah/upande-mobile-kit#v0.3.0` (pin a release tag).
+> Distributed from GitHub, not npm: no npm account needed. Install with `npm install github:mark-judah/upande-mobile-kit#v0.3.1` (pin a release tag).
 
 A drop-in **Settings page for Expo apps**, with the update plumbing behind it:
 
@@ -17,7 +17,7 @@ The server side is a small Frappe app (`upande_mobile`): it keeps the device reg
 
 ```bash
 # 1. add it to your Expo app (from GitHub; pin a release tag)
-npm install github:mark-judah/upande-mobile-kit#v0.3.0
+npm install github:mark-judah/upande-mobile-kit#v0.3.1
 
 # 2. run the wizard: it asks a few questions, then does the rest
 npx upande-mobile-kit init
@@ -88,10 +88,11 @@ The wizard installs these native modules for you; to do it by hand:
 
 ```bash
 npx expo install expo-updates expo-constants expo-file-system expo-intent-launcher \
-  expo-local-authentication expo-network @react-native-async-storage/async-storage
+  expo-local-authentication expo-network expo-device expo-battery expo-localization \
+  @react-native-async-storage/async-storage
 ```
 
-`expo-intent-launcher`, `expo-local-authentication`, `expo-network` and AsyncStorage are optional: without them the kit degrades (APKs open in the browser, no biometric switch, downloads never start on an unknown network, settings are kept in memory).
+`expo-intent-launcher`, `expo-local-authentication`, `expo-network`, `expo-device`, `expo-battery`, `expo-localization` and AsyncStorage are optional: without them the kit degrades (APKs open in the browser, no biometric switch, downloads never start on an unknown network, settings are kept in memory, crash reports lose the device model, battery and locale).
 
 ## How updates reach a phone
 
@@ -212,7 +213,7 @@ git tag v0.1.0 && git push origin v0.1.0
 git tag -f v0 && git push -f origin v0      # callers' `uses: <owner>/upande-mobile-kit/…@v0` resolves to this
 ```
 
-Users then run `npm install github:mark-judah/upande-mobile-kit#v0.3.0`. To update, they change the tag. Bump `version` in `package.json` before each tag so it matches.
+Users then run `npm install github:mark-judah/upande-mobile-kit#v0.3.1`. To update, they change the tag. Bump `version` in `package.json` before each tag so it matches.
 
 Notes: a GitHub install has no registry listing, download counts or integrity record beyond the git commit, so pin a tag (or a commit hash), never a branch. `npx upande-mobile-kit …` works after the install because the command is linked into `node_modules/.bin`.
 

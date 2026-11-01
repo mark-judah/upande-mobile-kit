@@ -241,7 +241,7 @@ export function run(argv, root = process.cwd(), { exec, lastSteps = true } = {})
   log.push(
     '',
     'Last steps:',
-    '  1. npx expo install expo-updates expo-constants expo-file-system expo-intent-launcher expo-local-authentication expo-network @react-native-async-storage/async-storage',
+    '  1. npx expo install expo-updates expo-constants expo-file-system expo-intent-launcher expo-local-authentication expo-network expo-device expo-battery expo-localization @react-native-async-storage/async-storage',
     "  2. In app/_layout.tsx wrap the app in <MobileKitProvider> (import it from '@upande/mobile-kit'); the config import is already added.",
     `  3. Enable GitHub Pages for the gh-pages branch of ${repo} (the first release creates it), then run \`npx upande-mobile-kit doctor${site ? ` --site ${site}${devSite ? ` --dev-site ${devSite}` : ''}` : ''}\`.`,
     '  Open /settings in the app: OTA, APK, biometric and devices are all there.',

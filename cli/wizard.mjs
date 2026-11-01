@@ -24,6 +24,10 @@ export const NATIVE_MODULES = [
   'expo-intent-launcher',
   'expo-local-authentication',
   'expo-network',
+  // device details on crash reports (model, battery, locale)
+  'expo-device',
+  'expo-battery',
+  'expo-localization',
   '@react-native-async-storage/async-storage',
 ];
 const URL_RE = /^https?:\/\/[^/\s]+/;
