@@ -14,21 +14,35 @@
  *   --ota-base-url URL       where JS bundles are served (default: GitHub Pages of --repo)
  *   --apk-name my_app        APK file-name stem (default: snake_case of --name)
  *   --branch main            release branch (default: current branch)
- *   --settings-route /path   where the kit's Settings page lives (default /settings; checked for collisions)
- *   --devices-route /path    where the kit's Devices page lives (default /devices)
+ *   --settings-route /path   rarely needed: another path for the kit's Settings page (default /mobile-kit/settings)
+ *   --devices-route /path    rarely needed: another path for the kit's Devices page (default /mobile-kit/devices)
  *   --biometric host|kit     who owns the biometric lock (default: detected; `host` when the app already locks itself)
  *   --no-adapters            do not look for the app's own auth store / API client / storage
  *   --no-backup              do not copy the files init changes into .upande-mobile-kit/backup/
  *   --force                  overwrite files that exist
  */
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { buildAdapters, detectHost, detectHostBiometric, STAND_IN_EFFECT } from './adapters.mjs';
 import { backupNote, createBackup } from './backup.mjs';
 import { BACKEND_APP, BACKEND_REPO_URL, isPlaceholder, KIT_REPO, NATIVE_MODULES, WORKFLOW_REF } from './constants.mjs';
-import { appDir, DEFAULT_ROUTES, describeCollision, findCollisions, findNavigators, navSnippet, routeFileFor, screenNameFor, validateRoute } from './routes.mjs';
+import {
+  appDir,
+  DEFAULT_ROUTES,
+  describeCollision,
+  findCollisions,
+  findLegacyKitFiles,
+  findNavigators,
+  isKitFile,
+  listRouteFiles,
+  navSnippet,
+  routeFileFor,
+  screenNameFor,
+  stripRedundantRouteLines,
+  validateRoute,
+} from './routes.mjs';
 import { offsetsFrom, runtimeVersionFor, versionCodeFor } from './version-lib.mjs';
 
 const TEMPLATES = resolve(dirname(fileURLToPath(import.meta.url)), '..', 'templates');
@@ -177,7 +191,8 @@ export function run(argv, root = process.cwd(), { exec, lastSteps = true, wiring
   const kitRepo = flag('kit-repo') ?? KIT_REPO;
   const otaBaseUrl = flag('ota-base-url') ?? defaultOtaBaseUrl(repo);
 
-  // The kit's two pages. A path that something else already serves would hide the kit's page, so stop before writing anything.
+  // The kit's two pages live under /mobile-kit/, so nothing of the app's collides. A page already served there
+  // (it should not happen) is the only thing that stops us, before anything is written.
   const routes = { settings: flag('settings-route') ?? DEFAULT_ROUTES.settings, devices: flag('devices-route') ?? DEFAULT_ROUTES.devices };
   for (const [key, flagName] of [['settings', '--settings-route'], ['devices', '--devices-route']]) {
     const bad = validateRoute(routes[key]);
@@ -223,9 +238,35 @@ export function run(argv, root = process.cwd(), { exec, lastSteps = true, wiring
 
   const settingsFile = routeFileFor(root, routes.settings);
   const devicesFile = routeFileFor(root, routes.devices);
+
+  // Pages an older version wrote at the app's own /settings and /devices: move them under /mobile-kit/.
+  // Only files that are exactly the kit's one-line re-export; a page the app wrote itself is never touched.
+  const legacy = findLegacyKitFiles(root).filter((l) => routes[l.key] === DEFAULT_ROUTES[l.key]);
+  for (const l of legacy) {
+    backup.save(l.file);
+    unlinkSync(join(root, l.file));
+    log.push(`move   ${l.file} -> ${routeFileFor(root, DEFAULT_ROUTES[l.key])} (the kit's ${l.key} page now lives at ${DEFAULT_ROUTES[l.key]}, where it cannot collide with your screens)`);
+  }
   put(settingsFile, tpl('settings-route.tsx'));
   put(devicesFile, tpl('devices-route.tsx'));
   put('src/mobile-kit.ts', fill(tpl('mobile-kit.ts')));
+  // An existing config that still names the old kit pages: drop those now-redundant lines (other values stay).
+  {
+    const cfgPath = join(root, 'src/mobile-kit.ts');
+    if (existsSync(cfgPath) && !force) {
+      const cur = readFileSync(cfgPath, 'utf8');
+      const next = stripRedundantRouteLines(cur, legacy);
+      if (next !== cur) {
+        backup.save('src/mobile-kit.ts');
+        writeFileSync(cfgPath, next);
+        log.push('edit   src/mobile-kit.ts (removed settingsRoute/devicesRoute lines that pointed at the old kit pages; the defaults are right now)');
+      }
+    }
+  }
+  const ownSettings = listRouteFiles(root).filter((f) => f.url === '/settings' && !isKitFile(root, f.file));
+  if (ownSettings.length || legacy.length) {
+    log.push(`note   ${ownSettings.length ? `your /settings is untouched (${ownSettings[0].file})` : 'nothing of yours uses /settings'}; the kit lives at ${routes.settings}`);
+  }
   put('.github/workflows/release.yml', fill(tpl('release-caller.yml')).replace('branches: [main]', `branches: [${branch}]`));
 
   // Load the kit config first thing in the root layout (an import is hoisted, so this is safe to prepend).

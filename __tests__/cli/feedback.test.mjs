@@ -10,8 +10,10 @@ import { NATIVE_MODULES } from '../../cli/constants.mjs';
 import { rebuildBlock, run as init } from '../../cli/init.mjs';
 import {
   configuredRoutes,
+  DEFAULT_ROUTES,
   describeCollision,
   findCollisions,
+  findLegacyKitFiles,
   findNavigators,
   insertNavEntry,
   linkedFrom,
@@ -19,6 +21,7 @@ import {
   routeFileFor,
   routeOfFile,
   screenNameFor,
+  stripRedundantRouteLines,
   validateRoute,
 } from '../../cli/routes.mjs';
 import { reachabilityChecks, sitesFrom } from '../../cli/site-checks.mjs';
@@ -144,21 +147,45 @@ test('findCollisions ignores the kit\'s own files, dynamic routes (static wins),
 test('findCollisions also reads src/app when that is where the routes live', () => {
   const { root } = makeApp({ 'src/app/(tabs)/settings.tsx': 'export default () => null;' });
   assert.deepEqual(findCollisions(root, '/settings').map((c) => c.file), ['src/app/(tabs)/settings.tsx']);
-  assert.equal(routeFileFor(root, '/kit-settings'), 'src/app/kit-settings.tsx');
+  assert.equal(routeFileFor(root, '/mobile-kit/settings'), 'src/app/mobile-kit/settings.tsx');
 });
 
-test('describeCollision names the files and the three ways out, with the flag to pass', () => {
-  const msg = describeCollision('/settings', [{ file: 'app/(tabs)/settings.tsx', url: '/settings' }], '--settings-route');
-  assert.match(msg, /\/settings is already served by:\n {2}- app\/\(tabs\)\/settings\.tsx/);
-  assert.match(msg, /--settings-route \/kit-settings/);
-  assert.match(msg, /rename or remove/);
-  assert.match(msg, /export \{ SettingsRoute as default \} from '@upande\/mobile-kit'/);
+test('describeCollision names the files and the one-line fix (the kit lives under /mobile-kit/, so this is a safety net)', () => {
+  const msg = describeCollision('/mobile-kit/settings', [{ file: 'app/mobile-kit/settings.tsx', url: '/mobile-kit/settings' }], '--settings-route');
+  assert.match(msg, /\/mobile-kit\/settings is already served by:\n {2}- app\/mobile-kit\/settings\.tsx/);
+  assert.match(msg, /rename or remove/i);
+  assert.match(msg, /live under \/mobile-kit\//);
+  assert.doesNotMatch(msg, /\/kit-settings/); // no menu of alternative paths
 });
 
-test('init stops on a collision BEFORE writing anything, naming the flag', () => {
-  const { root } = makeApp({ 'app/(tabs)/settings.tsx': 'export default () => null;', 'app/_layout.tsx': ROOT_LAYOUT });
-  assert.throws(() => init(flags, root), /\/settings is already served by:\n\s+- app\/\(tabs\)\/settings\.tsx[\s\S]*--settings-route/);
-  for (const f of ['app/devices.tsx', 'src/mobile-kit.ts', '.github/workflows/release.yml']) assert.ok(!existsSync(join(root, f)), `${f} must not exist`);
+test('the kit pages default to /mobile-kit/*, so an app with its own /settings (even in (tabs)) is not a collision', () => {
+  assert.deepEqual(DEFAULT_ROUTES, { settings: '/mobile-kit/settings', devices: '/mobile-kit/devices' });
+  const { root } = makeApp({ 'app/(tabs)/settings.tsx': 'export default () => null;', 'app/devices/index.tsx': 'export default () => null;', 'app/_layout.tsx': ROOT_LAYOUT });
+  assert.deepEqual(findCollisions(root, DEFAULT_ROUTES.settings), []);
+  assert.deepEqual(findCollisions(root, DEFAULT_ROUTES.devices), []);
+  const own = readFileSync(join(root, 'app/(tabs)/settings.tsx'), 'utf8');
+  const out = init(flags, root); // no prompt, no collision, no flag to pass
+  assert.ok(existsSync(join(root, 'app/mobile-kit/settings.tsx')));
+  assert.ok(existsSync(join(root, 'app/mobile-kit/devices.tsx')));
+  assert.ok(!existsSync(join(root, 'app/settings.tsx')) && !existsSync(join(root, 'app/devices.tsx')));
+  assert.equal(readFileSync(join(root, 'app/(tabs)/settings.tsx'), 'utf8'), own); // the host's page is untouched
+  assert.match(out, /your \/settings is untouched \(app\/\(tabs\)\/settings\.tsx\); the kit lives at \/mobile-kit\/settings/);
+  assert.match(out, /Open \/mobile-kit\/settings in the app \(rendered by app\/mobile-kit\/settings\.tsx\)/);
+});
+
+test('a fresh init writes the minimal config: no route keys, no other value that equals a default', () => {
+  const { root } = makeApp();
+  init(flags, root);
+  const cfg = readFileSync(join(root, 'src/mobile-kit.ts'), 'utf8');
+  assert.doesNotMatch(cfg, /^ {2}(settingsRoute|devicesRoute):/m);
+  assert.doesNotMatch(cfg, /^ {2}biometric:/m); // 'kit' is the default
+  assert.match(cfg, /^ {2}appName: 'My App'/m);
+});
+
+test('init stops on a collision at the kit\'s own path BEFORE writing anything, naming the file and one fix', () => {
+  const { root } = makeApp({ 'app/(tabs)/mobile-kit/settings.tsx': 'export default () => null;', 'app/_layout.tsx': ROOT_LAYOUT });
+  assert.throws(() => init(flags, root), /\/mobile-kit\/settings is already served by:\n\s+- app\/\(tabs\)\/mobile-kit\/settings\.tsx[\s\S]*rename or remove/i);
+  for (const f of ['app/mobile-kit/devices.tsx', 'src/mobile-kit.ts', '.github/workflows/release.yml']) assert.ok(!existsSync(join(root, f)), `${f} must not exist`);
   assert.equal(readFileSync(join(root, 'app/_layout.tsx'), 'utf8'), ROOT_LAYOUT);
   assert.equal(JSON.parse(readFileSync(join(root, 'app.json'), 'utf8')).expo.plugins, undefined);
 });
@@ -188,64 +215,54 @@ test('the alternative path is collision-checked too, and must be a valid, differ
   assert.throws(() => init([...flags, '--settings-route', '/same', '--devices-route', '/same'], r2), /must differ/);
 });
 
-test('wizard: on a collision it offers the alternative path (default /kit-settings) and uses it', () =>
+test('wizard: a host /settings page is no issue: no route question, pages go under /mobile-kit/', () =>
   withHome(async () => {
     const { root } = makeApp({ 'app/(tabs)/settings.tsx': 'x', 'app/_layout.tsx': ROOT_LAYOUT });
-    // production, dev, [route choice: alt], backend?, native?, auth skip, apply
-    const io = scripted(['https://prod.example.com', '', 'alt', false, false, '', true]);
+    // production, dev, backend?, native?, auth skip, apply   (no route question at all)
+    const io = scripted(['https://prod.example.com', '', false, false, '', true]);
     const out = await main(['--no-install'], root, { io, doctor: doctorStub });
-    assert.ok(io.asked.some((q) => /^\/settings is taken\. What now\?/.test(q)));
-    assert.ok(existsSync(join(root, 'app/kit-settings.tsx')));
-    assert.ok(existsSync(join(root, 'app/devices.tsx')));
-    assert.match(readFileSync(join(root, 'src/mobile-kit.ts'), 'utf8'), /settingsRoute: '\/kit-settings'/);
-    assert.match(out, /Open \/kit-settings in the app \(rendered by app\/kit-settings\.tsx\)/);
-    assert.ok(io.said.some((t) => /Settings at \/kit-settings, Devices at \/devices/.test(t)));
+    assert.ok(!io.asked.some((q) => /taken|route|path/i.test(q)), io.asked.join('\n'));
+    assert.ok(existsSync(join(root, 'app/mobile-kit/settings.tsx')));
+    assert.ok(existsSync(join(root, 'app/mobile-kit/devices.tsx')));
+    assert.equal(readFileSync(join(root, 'app/(tabs)/settings.tsx'), 'utf8'), 'x');
+    assert.doesNotMatch(readFileSync(join(root, 'src/mobile-kit.ts'), 'utf8'), /settingsRoute|devicesRoute/);
+    assert.match(out, /Open \/mobile-kit\/settings in the app \(rendered by app\/mobile-kit\/settings\.tsx\)/);
+    assert.ok(io.said.some((t) => /Settings at \/mobile-kit\/settings, Devices at \/mobile-kit\/devices/.test(t)));
+    assert.match(out, /your \/settings is untouched/);
   }));
 
-test('wizard: "type another path" is validated and re-checked; "stop" writes nothing', () =>
+test('wizard: the safety net stops (interactively and with --yes) when something already serves /mobile-kit/settings', () =>
   withHome(async () => {
-    const { root } = makeApp({ 'app/(tabs)/settings.tsx': 'x', 'app/mine.tsx': 'x' });
-    // choice 'type', a taken path, then a bad one, then a free one
-    const io = scripted(['https://prod.example.com', '', 'type', '/mine', 'type', 'nope', '/my-settings', false, false, '', true]);
-    await main(['--no-install'], root, { io, doctor: doctorStub });
-    assert.ok(existsSync(join(root, 'app/my-settings.tsx')));
-    assert.ok(io.said.some((t) => /\/mine is already served by/.test(t)));
-    assert.ok(io.said.some((t) => /A route starts with \//.test(t)));
-
-    const { root: r2 } = makeApp({ 'app/(tabs)/settings.tsx': 'x' });
+    const { root } = makeApp({ 'app/mobile-kit/settings.tsx': 'export default () => null;' });
     await assert.rejects(
-      main(['--no-install'], r2, { io: scripted(['https://prod.example.com', '', 'stop']), doctor: doctorStub }),
-      /Stopped before writing anything[\s\S]*\/settings is already served by/,
+      main(['--no-install'], root, { io: scripted(['https://prod.example.com', '']), doctor: doctorStub }),
+      /\/mobile-kit\/settings is already served by:\n\s+- app\/mobile-kit\/settings\.tsx/,
     );
-    assert.ok(!existsSync(join(r2, 'src/mobile-kit.ts')));
-  }));
-
-test('wizard --yes on a collision fails with the flags to pass (it never guesses a path)', () =>
-  withHome(async () => {
-    const { root } = makeApp({ 'app/(tabs)/settings.tsx': 'x' });
     await assert.rejects(
       main(['--yes', '--no-install', '--site', 'https://prod.example.com'], root, { io: scripted([], { interactive: false }), doctor: doctorStub }),
-      /--settings-route \/kit-settings/,
+      /\/mobile-kit\/settings is already served by/,
     );
-    await main(['--yes', '--no-install', '--site', 'https://prod.example.com', '--settings-route', '/kit-settings'], root, { io: scripted([], { interactive: false }), doctor: doctorStub });
-    assert.ok(existsSync(join(root, 'app/kit-settings.tsx')));
+    assert.ok(!existsSync(join(root, 'src/mobile-kit.ts')));
+    // a custom path still works for forks that insist on one
+    await main(['--yes', '--no-install', '--site', 'https://prod.example.com', '--settings-route', '/my-settings'], root, { io: scripted([], { interactive: false }), doctor: doctorStub });
+    assert.ok(existsSync(join(root, 'app/my-settings.tsx')));
   }));
 
 test('doctor fails a collision with the fix, and fails a route file that does not re-export the kit', async () => {
-  const { root } = makeApp({ 'app/(tabs)/settings.tsx': 'x' });
-  init([...flags, '--settings-route', '/kit-settings'], root);
-  // now something else grabs /kit-settings too
-  writeFileSync(join(root, 'app/(tabs)/kit-settings.tsx'), 'export default () => null;');
+  const { root, w } = makeApp();
+  init(flags, root);
+  // now something else grabs the kit's URL too
+  w('app/(tabs)/mobile-kit/settings.tsx', 'export default () => null;');
   const res = await doctor(root, {});
-  const bad = res.find((r) => r.level === 'fail' && /\/kit-settings is also served by app\/\(tabs\)\/kit-settings\.tsx/.test(r.msg));
+  const bad = res.find((r) => r.level === 'fail' && /\/mobile-kit\/settings is also served by app\/\(tabs\)\/mobile-kit\/settings\.tsx/.test(r.msg));
   assert.ok(bad, JSON.stringify(res.filter((r) => r.level === 'fail')));
-  assert.match(bad.msg, /--settings-route/);
+  assert.match(bad.msg, /rename or remove/);
   // the kit's own file gone stale (not a re-export)
   const { root: r2 } = makeApp();
   init(flags, r2);
-  writeFileSync(join(r2, 'app/devices.tsx'), 'export default () => null;');
+  writeFileSync(join(r2, 'app/mobile-kit/devices.tsx'), 'export default () => null;');
   const res2 = await doctor(r2, {});
-  assert.ok(res2.some((r) => r.level === 'fail' && /\/devices is also served by app\/devices\.tsx/.test(r.msg)));
+  assert.ok(res2.some((r) => r.level === 'fail' && /\/mobile-kit\/devices is also served by app\/mobile-kit\/devices\.tsx/.test(r.msg)));
 });
 
 /* ───────────── 2. make the page findable ───────────── */
@@ -310,7 +327,7 @@ test('wizard offers a Settings entry in the Drawer, inserts it with a backup, an
     const out = await main(['--no-install'], root, { io, doctor: doctorStub });
     assert.ok(io.asked.some((q) => /Add a "Settings" entry to the Drawer in app\/_layout\.tsx\?/.test(q)));
     const layout = readFileSync(join(root, 'app/_layout.tsx'), 'utf8');
-    assert.match(layout, /<Drawer\.Screen name="settings" options=\{\{ title: 'Settings' \}\} \/>/);
+    assert.match(layout, /<Drawer\.Screen name="mobile-kit\/settings" options=\{\{ title: 'Settings' \}\} \/>/);
     assert.match(out, /edit {3}app\/_layout\.tsx \(added a "Settings" Drawer\.Screen entry\)/);
     assert.match(out, /the navigator entry above links to it/);
     const stamp = readdirSync(join(root, '.upande-mobile-kit/backup'))[0];
@@ -322,19 +339,23 @@ test('wizard: declining the navigator entry leaves the layout alone and prints t
     const { root } = makeApp({ 'app/_layout.tsx': TABS });
     const io = scripted(['https://prod.example.com', '', false, false, '', true, false]);
     const out = await main(['--no-install'], root, { io, doctor: doctorStub });
-    assert.ok(!/name="settings"/.test(readFileSync(join(root, 'app/_layout.tsx'), 'utf8')));
+    assert.ok(!/name="mobile-kit\/settings"/.test(readFileSync(join(root, 'app/_layout.tsx'), 'utf8')));
     assert.match(out, /Nothing in your app links to it yet/);
-    assert.match(out, /<Tabs\.Screen name="settings"/);
-    assert.match(out, /router\.push\('\/settings'\)/);
-    assert.match(out, /<Link href="\/settings">/);
+    assert.match(out, /<Tabs\.Screen name="mobile-kit\/settings"/);
+    assert.match(out, /router\.push\('\/mobile-kit\/settings'\)/);
+    assert.match(out, /<Link href="\/mobile-kit\/settings">/);
   }));
 
 test('plain init prints the open-this-URL block with a snippet; navSnippet names the navigator', () => {
   const { root } = makeApp({ 'app/_layout.tsx': DRAWER });
   const out = init(flags, root);
-  assert.match(out, /Open \/settings in the app \(rendered by app\/settings\.tsx\)/);
-  assert.match(out, /In app\/_layout\.tsx, inside <Drawer>:\n\s+<Drawer\.Screen name="settings"/);
-  assert.match(navSnippet('/kit-settings', { file: 'app/_layout.tsx', kind: 'Tabs', dir: 'app' }), /<Tabs\.Screen name="kit-settings"/);
+  assert.match(out, /Open \/mobile-kit\/settings in the app \(rendered by app\/mobile-kit\/settings\.tsx\)/);
+  assert.match(out, /In app\/_layout\.tsx, inside <Drawer>:\n\s+<Drawer\.Screen name="mobile-kit\/settings"/);
+  assert.match(navSnippet('/mobile-kit/settings', { file: 'app/_layout.tsx', kind: 'Tabs', dir: 'app' }), /<Tabs\.Screen name="mobile-kit\/settings"/);
+  // a navigator inside a (group) folder cannot hold a page outside it: only the link is offered
+  const grouped = navSnippet('/mobile-kit/settings', { file: 'app/(tabs)/_layout.tsx', kind: 'Tabs', dir: 'app/(tabs)' });
+  assert.doesNotMatch(grouped, /Tabs\.Screen/);
+  assert.match(grouped, /<Link href="\/mobile-kit\/settings">/);
 });
 
 test('linkedFrom finds a link by string, or a navigator screen of that name; the kit\'s own files do not count', () => {
@@ -647,7 +668,7 @@ const OK_PROBE = async () => ({ status: 204, headers: { get: (k) => (k === 'expo
 /** A fully set-up app: init, an installed node_modules, a link to the page, an app-owned lock. */
 function goodApp({ dev = false } = {}) {
   const { root, w } = makeApp(
-    { ...HOST, 'app/_layout.tsx': ROOT_LAYOUT, 'src/lock.ts': "import * as L from 'expo-local-authentication';\nexport const x = L.authenticateAsync;", 'app/home.tsx': "import { router } from 'expo-router';\nrouter.push('/settings');" },
+    { ...HOST, 'app/_layout.tsx': ROOT_LAYOUT, 'src/lock.ts': "import * as L from 'expo-local-authentication';\nexport const x = L.authenticateAsync;", 'app/home.tsx': "import { router } from 'expo-router';\nrouter.push('/mobile-kit/settings');" },
     { deps: ALL_DEPS },
   );
   init([...flags, ...(dev ? ['--dev-site', 'http://localhost:8000'] : [])], root);
@@ -662,7 +683,7 @@ test('verify: a fully set-up app has no failures and every line is ✓/!/✗ wit
   assert.deepEqual(res.filter((r) => r.level === 'fail'), [], JSON.stringify(res.filter((r) => r.level === 'fail')));
   assert.deepEqual(res.filter((r) => r.level === 'warn').map((r) => r.msg), []);
   for (const r of res.filter((x) => x.level !== 'ok')) assert.ok(r.fix, r.msg);
-  assert.ok(res.some((r) => r.level === 'ok' && /route \/settings -> app\/settings\.tsx/.test(r.msg)));
+  assert.ok(res.some((r) => r.level === 'ok' && /route \/mobile-kit\/settings -> app\/mobile-kit\/settings\.tsx/.test(r.msg)));
   assert.ok(res.some((r) => r.level === 'ok' && /production site OTA endpoint answers 204/.test(r.msg)));
   assert.ok(res.some((r) => r.level === 'ok' && /biometric lock is owned by your app/.test(r.msg)));
 });
@@ -671,21 +692,22 @@ test('verify: route collision, missing provider, config not first, stand-ins and
   const root = goodApp();
   writeFileSync(join(root, 'app/(tabs)-settings-placeholder.tsx'), '');
   mkdirSync(join(root, 'app/(tabs)'), { recursive: true });
-  writeFileSync(join(root, 'app/(tabs)/devices.tsx'), 'export default () => null;');
+  mkdirSync(join(root, 'app/(tabs)/mobile-kit'), { recursive: true });
+  writeFileSync(join(root, 'app/(tabs)/mobile-kit/devices.tsx'), 'export default () => null;');
   writeFileSync(join(root, 'app/_layout.tsx'), "import { Stack } from 'expo-router';\nimport '../src/mobile-kit';\nexport default function L() {\n  return <Stack />;\n}\n");
   writeFileSync(join(root, 'src/mobile-kit.ts'), "import { configureMobileKit } from '@upande/mobile-kit';\nconfigureMobileKit({ appName: 'My App', githubRepo: 'acme/my-app', site: 'https://erp.example.com' });\n");
   writeFileSync(join(root, 'app/home.tsx'), 'export default () => null;');
   const res = await verify(root, { fetchImpl: OK_PROBE });
   const by = (re) => res.find((r) => re.test(r.msg));
-  assert.equal(by(/route \/devices is also served by app\/\(tabs\)\/devices\.tsx/).level, 'fail');
-  assert.match(by(/route \/devices is also served by/).fix, /--devices-route \/kit-devices/);
+  assert.equal(by(/route \/mobile-kit\/devices is also served by app\/\(tabs\)\/mobile-kit\/devices\.tsx/).level, 'fail');
+  assert.match(by(/route \/mobile-kit\/devices is also served by/).fix, /rename or remove/);
   assert.equal(by(/does not mount <MobileKitProvider>/).level, 'fail');
   assert.equal(by(/imports the kit config, but not first/).level, 'warn');
   assert.equal(by(/config: useAuth is on the kit's stand-in/).level, 'warn');
   assert.equal(by(/config: api is on the kit's stand-in/).level, 'warn');
   assert.equal(by(/two biometric locks/).level, 'warn');
   assert.match(by(/two biometric locks/).fix, /biometric: 'host'/);
-  assert.equal(by(/nothing in your app links to \/settings/).level, 'warn');
+  assert.equal(by(/nothing in your app links to \/mobile-kit\/settings/).level, 'warn');
   for (const r of res.filter((x) => x.level !== 'ok')) assert.ok(r.fix, r.msg);
 });
 
@@ -786,3 +808,91 @@ test('buildAdapters with nothing found leaves the config hints and lists the thr
   assert.deepEqual(a.imports, []);
   assert.ok(a.hints.some((h) => /useAuth/.test(h)));
 });
+
+/* ───────────── pages written by an older version move under /mobile-kit/ ───────────── */
+
+const DEV_RE = "export { DevicesRoute as default } from '@upande/mobile-kit';\n";
+const OLD_CFG = (extra = '') => `import { configureMobileKit } from '@upande/mobile-kit';\n\nconfigureMobileKit({\n  appName: 'My App',\n  githubRepo: 'acme/my-app',\n  site: 'https://erp.example.com',\n${extra}  // apk: { autoDownload: 'wifi' },\n});\n`;
+
+test('migration: the kit\'s old /settings and /devices files move under /mobile-kit/, with a backup, and the answer is the same twice', () => {
+  const { root } = makeApp({ 'app/settings.tsx': KIT_RE, 'app/devices.tsx': DEV_RE, 'src/mobile-kit.ts': OLD_CFG(), 'app/_layout.tsx': ROOT_LAYOUT });
+  assert.deepEqual(findLegacyKitFiles(root).map((l) => [l.key, l.file]), [['settings', 'app/settings.tsx'], ['devices', 'app/devices.tsx']]);
+  const out = init(flags, root);
+  assert.ok(!existsSync(join(root, 'app/settings.tsx')) && !existsSync(join(root, 'app/devices.tsx')));
+  assert.equal(readFileSync(join(root, 'app/mobile-kit/settings.tsx'), 'utf8'), KIT_RE);
+  assert.equal(readFileSync(join(root, 'app/mobile-kit/devices.tsx'), 'utf8'), DEV_RE);
+  assert.match(out, /move {3}app\/settings\.tsx -> app\/mobile-kit\/settings\.tsx/);
+  assert.match(out, /move {3}app\/devices\.tsx -> app\/mobile-kit\/devices\.tsx/);
+  assert.match(out, /nothing of yours uses \/settings; the kit lives at \/mobile-kit\/settings/);
+  // old copies are in the backup, outside app/
+  const stamp = readdirSync(join(root, '.upande-mobile-kit/backup'))[0];
+  assert.equal(readFileSync(join(root, '.upande-mobile-kit/backup', stamp, 'app/settings.tsx'), 'utf8'), KIT_RE);
+  // a second run changes nothing and moves nothing
+  const again = init(flags, root);
+  assert.doesNotMatch(again, /move {3}/);
+  assert.deepEqual(findLegacyKitFiles(root), []);
+});
+
+test('migration: an old settingsRoute/devicesRoute line that named the kit\'s old page is removed; other values stay', () => {
+  const { root } = makeApp({
+    'app/kit-settings.tsx': KIT_RE,
+    'app/mine.tsx': 'export default () => null;',
+    'src/mobile-kit.ts': OLD_CFG("  settingsRoute: '/kit-settings',\n  devicesRoute: '/mine',\n"),
+  });
+  init(flags, root);
+  assert.ok(!existsSync(join(root, 'app/kit-settings.tsx')));
+  assert.ok(existsSync(join(root, 'app/mobile-kit/settings.tsx')));
+  const cfg = readFileSync(join(root, 'src/mobile-kit.ts'), 'utf8');
+  assert.doesNotMatch(cfg, /settingsRoute/); // pointed at the kit's old page: redundant now
+  assert.match(cfg, /^ {2}devicesRoute: '\/mine',$/m); // not the kit's old page: kept
+  assert.match(cfg, /\/\/ apk:/); // nothing else touched
+  // a line equal to the old default goes too
+  assert.equal(stripRedundantRouteLines("a\n  settingsRoute: '/settings',\nb\n", []), 'a\nb\n');
+  assert.equal(stripRedundantRouteLines("  devicesRoute: '/mine',\n", [{ key: 'settings', route: '/kit-settings' }]), "  devicesRoute: '/mine',\n");
+});
+
+test('migration never touches a screen the host wrote itself', () => {
+  const { root } = makeApp({
+    'app/settings.tsx': '// the app\'s own settings\nexport default function S() { return null; }\n',
+    'app/(tabs)/devices.tsx': 'export default () => null;',
+    'app/devices.tsx': DEV_RE, // the kit's old one, moved
+    'src/mobile-kit.ts': OLD_CFG(),
+  });
+  assert.deepEqual(findLegacyKitFiles(root).map((l) => l.key), ['devices']); // /settings is the host's: not a kit file
+  const own = readFileSync(join(root, 'app/settings.tsx'), 'utf8');
+  const out = init(flags, root);
+  assert.equal(readFileSync(join(root, 'app/settings.tsx'), 'utf8'), own);
+  assert.ok(existsSync(join(root, 'app/(tabs)/devices.tsx')));
+  assert.match(out, /your \/settings is untouched \(app\/settings\.tsx\); the kit lives at \/mobile-kit\/settings/);
+  assert.ok(existsSync(join(root, 'app/mobile-kit/devices.tsx')));
+  // a file that merely mentions the kit, or has extra code, is not "the kit's old file"
+  const { root: r2 } = makeApp({ 'app/settings.tsx': KIT_RE + 'export const extra = 1;\n' });
+  assert.deepEqual(findLegacyKitFiles(r2), []);
+});
+
+test('doctor and verify warn while the old files remain, with the one-command fix; init clears the warning', async () => {
+  const { root } = makeApp({ 'app/settings.tsx': KIT_RE, 'app/devices.tsx': DEV_RE, 'src/mobile-kit.ts': OLD_CFG() });
+  const d = await doctor(root, {});
+  assert.ok(d.some((r) => r.level === 'warn' && /app\/settings\.tsx and app\/devices\.tsx; they now live under \/mobile-kit\//.test(r.msg) && /init/.test(r.msg)));
+  const v = await verify(root, { fetchImpl: OK_PROBE });
+  const w = v.find((r) => r.level === 'warn' && /older version put the kit's pages at/.test(r.msg));
+  assert.ok(w && /init/.test(w.fix), JSON.stringify(v.filter((r) => r.level !== 'ok').map((r) => r.msg)));
+  init(flags, root);
+  assert.ok(!(await doctor(root, {})).some((r) => /older version/.test(r.msg)));
+  assert.ok(!(await verify(root, { fetchImpl: OK_PROBE })).some((r) => /older version/.test(r.msg)));
+});
+
+test('wizard ignores a route remembered by an older version: the pages go to the default under /mobile-kit/', () =>
+  withHome(async () => {
+    const { root } = makeApp({
+      'upande-mobile-kit.json': { site: 'https://prod.example.com', settingsRoute: '/kit-settings', devicesRoute: '/kit-devices' },
+      'app/kit-settings.tsx': KIT_RE,
+      'app/kit-devices.tsx': DEV_RE,
+      'src/mobile-kit.ts': OLD_CFG("  settingsRoute: '/kit-settings',\n  devicesRoute: '/kit-devices',\n"),
+    });
+    await main(['--yes', '--no-install'], root, { io: scripted([], { interactive: false }), doctor: doctorStub });
+    assert.ok(existsSync(join(root, 'app/mobile-kit/settings.tsx')) && existsSync(join(root, 'app/mobile-kit/devices.tsx')));
+    assert.ok(!existsSync(join(root, 'app/kit-settings.tsx')) && !existsSync(join(root, 'app/kit-devices.tsx')));
+    assert.doesNotMatch(readFileSync(join(root, 'src/mobile-kit.ts'), 'utf8'), /settingsRoute|devicesRoute/);
+    assert.doesNotMatch(readFileSync(join(root, 'upande-mobile-kit.json'), 'utf8'), /Route/);
+  }));

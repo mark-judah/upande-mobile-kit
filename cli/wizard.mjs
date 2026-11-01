@@ -22,8 +22,8 @@ import {
   appDir,
   DEFAULT_ROUTES,
   describeCollision,
-  FALLBACK_ROUTES,
   findCollisions,
+  findLegacyKitFiles,
   findNavigators,
   insertNavEntry,
   navSnippet,
@@ -462,30 +462,17 @@ async function wizard({ argv, root, flag, yes, noInstall, io, doctorFn }) {
     }),
   );
 
-  // The kit's two pages must not collide with pages the app already has: stop, and offer another path.
+  // The kit's pages live under /mobile-kit/, so nothing of the app's collides: no choices to make. A page
+  // already served there (it should not happen) is the only thing that stops us, before anything is written.
   const routes = {};
   for (const key of ['settings', 'devices']) {
     const flagName = `--${key}-route`;
-    const explicit = flag(`${key}-route`);
-    let route = explicit ?? saved[`${key}Route`] ?? DEFAULT_ROUTES[key];
-    for (;;) {
-      const bad = validateRoute(route);
-      const taken = bad ? [] : findCollisions(root, route);
-      if (!bad && !taken.length) break;
-      const text = bad ? `${flagName}: ${bad}` : describeCollision(route, taken, flagName);
-      if (!prompting || explicit !== undefined && bad) throw new Error(text);
-      say(`\n${text}\n`);
-      const choice = bad
-        ? 'type'
-        : await io.choose(`${route} is taken. What now?`, [
-            { label: `Use ${FALLBACK_ROUTES[key]} for the kit's page (recommended)`, value: 'alt' },
-            { label: 'Type another path', value: 'type' },
-            { label: 'Stop, so I can resolve it myself', value: 'stop' },
-          ]);
-      if (choice === 'stop') throw new Error(`Stopped before writing anything.\n${text}`);
-      route = choice === 'alt' ? FALLBACK_ROUTES[key] : await io.ask(`Path for the kit's ${key} page`, FALLBACK_ROUTES[key]);
-      if (choice === 'alt' && validateRoute(route) === '' && findCollisions(root, route).length === 0) break;
-    }
+    // A saved route from an older version is ignored on purpose: the pages move to the default under /mobile-kit/.
+    const route = flag(`${key}-route`) ?? DEFAULT_ROUTES[key];
+    const bad = validateRoute(route);
+    if (bad) throw new Error(`${flagName}: ${bad}`);
+    const taken = findCollisions(root, route);
+    if (taken.length) throw new Error(describeCollision(route, taken, flagName));
     routes[key] = route;
   }
   if (routes.settings === routes.devices) throw new Error('The Settings and Devices pages need different paths (--settings-route / --devices-route).');
@@ -586,6 +573,7 @@ async function wizard({ argv, root, flag, yes, noInstall, io, doctorFn }) {
 
   say('\nThis will:');
   say('  Files');
+  for (const l of findLegacyKitFiles(root).filter((x) => routes[x.key] === DEFAULT_ROUTES[x.key])) say(`  • ${l.file}  (moved to ${routeFileFor(root, DEFAULT_ROUTES[l.key])}: it is the kit's own page from an older version)`);
   say(fileLine(settingsFile, ['create', 'exists, kept']));
   say(fileLine(devicesFile, ['create', 'exists, kept']));
   say(fileLine('src/mobile-kit.ts', ['create', 'exists, kept; only the site line is updated']));
@@ -695,8 +683,6 @@ async function wizard({ argv, root, flag, yes, noInstall, io, doctorFn }) {
     bench: installBackend ? bench : saved.bench,
     benchSite: installBackend ? benchSite : saved.benchSite,
     installNative,
-    settingsRoute: routes.settings !== DEFAULT_ROUTES.settings ? routes.settings : undefined,
-    devicesRoute: routes.devices !== DEFAULT_ROUTES.devices ? routes.devices : undefined,
     authFile: wire.auth && !detectHost(root).auth ? wire.auth.file : saved.authFile,
     authExport: wire.auth && !detectHost(root).auth ? wire.auth.exportName : saved.authExport,
   });

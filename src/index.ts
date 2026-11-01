@@ -5,6 +5,8 @@ export {
   DEFAULT_THEME,
   DEFAULT_ENDPOINTS,
   defaultInstanceKey,
+  DEFAULT_SETTINGS_ROUTE,
+  DEFAULT_DEVICES_ROUTE,
   resolveSite,
   getConfigGaps,
   CONFIG_GAP_MESSAGES,

@@ -3,14 +3,17 @@
  * whether the kit's pages would collide with a page the app already has, and
  * whether anything in the app links to them.
  *
+ * The kit's pages live in their own `/mobile-kit/` folder, which apps do not
+ * use, so a collision is not expected; the checks here are a quiet safety net.
  * Group folders like `(tabs)` are transparent (they do not appear in the URL),
  * so `app/(tabs)/settings.tsx` and `app/settings.tsx` both serve `/settings`.
  */
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { dirname, join, relative } from 'node:path';
 
-export const DEFAULT_ROUTES = { settings: '/settings', devices: '/devices' };
-export const FALLBACK_ROUTES = { settings: '/kit-settings', devices: '/kit-devices' };
+export const DEFAULT_ROUTES = { settings: '/mobile-kit/settings', devices: '/mobile-kit/devices' };
+/** Where earlier versions put the kit's pages (and what `configuredRoutes` meant when a line was absent). */
+export const LEGACY_ROUTES = { settings: '/settings', devices: '/devices' };
 
 const SRC_EXT = /\.(tsx|ts|jsx|js)$/;
 const KIT = '@upande/mobile-kit';
@@ -32,14 +35,14 @@ export function appDir(root) {
 
 /** '' when `route` is usable for a kit page, otherwise what is wrong with it. */
 export function validateRoute(route) {
-  if (typeof route !== 'string' || !route.startsWith('/')) return 'A route starts with / (for example /kit-settings).';
+  if (typeof route !== 'string' || !route.startsWith('/')) return 'A route starts with / (for example /my-settings).';
   if (!/^\/[A-Za-z0-9][\w-]*(\/[A-Za-z0-9][\w-]*)*$/.test(route)) {
     return 'Use letters, digits, - and _ in each segment: no [dynamic] segments, (groups) or spaces.';
   }
   return '';
 }
 
-/** Where the file for `route` goes, relative to the app root: /kit-settings -> app/kit-settings.tsx. */
+/** Where the file for `route` goes, relative to the app root: /mobile-kit/settings -> app/mobile-kit/settings.tsx. */
 export const routeFileFor = (root, route) => `${appDir(root)}${route}.tsx`;
 
 /**
@@ -110,18 +113,71 @@ export function findCollisions(root, route) {
   return out;
 }
 
-/** The message shown when `route` is taken. */
+/** The message shown when `route` is taken (it should not be: the kit's pages live under /mobile-kit/). */
 export function describeCollision(route, collisions, flag) {
-  const kind = route.replace(/^\//, '').split('/')[0];
   return [
     `${route} is already served by:`,
     ...collisions.map((c) => `  - ${c.file}`),
-    `The kit's page would shadow it or be shadowed by it, so it would never show. Resolve it one of these ways:`,
-    `  1. use another path for the kit's page:  ${flag} /kit-${kind}`,
-    `  2. rename or remove the file(s) above and run again`,
-    `  3. keep your own page and re-export the kit's screen from it:`,
-    `       export { ${kind === 'devices' ? 'DevicesRoute' : 'SettingsRoute'} as default } from '${KIT}';`,
+    `The kit's pages live under /mobile-kit/, which apps do not normally use. Rename or remove the file(s) above and run again${flag ? ` (or pass ${flag} <another path>)` : ''}.`,
   ].join('\n');
+}
+
+/* ───────────────────── pages written by an older version ───────────────────── */
+
+const OLD_ROUTE_FILE = {
+  settings: /^\s*export\s*\{\s*SettingsRoute\s+as\s+default\s*\}\s*from\s*['"]@upande\/mobile-kit['"]\s*;?\s*$/,
+  devices: /^\s*export\s*\{\s*DevicesRoute\s+as\s+default\s*\}\s*from\s*['"]@upande\/mobile-kit['"]\s*;?\s*$/,
+};
+
+/** Is `file` exactly the one-line re-export older `init` wrote (comments and blank lines aside)? */
+export function isOldKitRouteFile(root, file, kind) {
+  const src = read(root, file).replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+  return OLD_ROUTE_FILE[kind].test(src);
+}
+
+/** The `settingsRoute` / `devicesRoute` an app's src/mobile-kit.ts sets explicitly, or undefined per key. */
+export function explicitRoutes(root) {
+  const src = read(root, 'src/mobile-kit.ts');
+  const pick = (key) => new RegExp(`^[ \\t]*${key}:[ \\t]*['"]([^'"]+)['"]`, 'm').exec(src)?.[1];
+  return { settings: pick('settingsRoute'), devices: pick('devicesRoute') };
+}
+
+/**
+ * The kit's page files written by an earlier version at the app's own top level
+ * (`app/settings.tsx`, `app/devices.tsx`, or the path an older `settingsRoute` /
+ * `devicesRoute` named). Only files that are exactly the kit's re-export count; a
+ * page the app wrote itself is never returned.
+ * @returns {{ key: 'settings' | 'devices', route: string, file: string }[]}
+ */
+export function findLegacyKitFiles(root) {
+  const explicit = explicitRoutes(root);
+  const out = [];
+  for (const key of ['settings', 'devices']) {
+    const routes = [...new Set([explicit[key], LEGACY_ROUTES[key]].filter(Boolean))].filter((r) => r !== DEFAULT_ROUTES[key] && validateRoute(r) === '');
+    for (const route of routes) {
+      const file = routeFileFor(root, route);
+      if (isOldKitRouteFile(root, file, key)) {
+        out.push({ key, route, file });
+        break;
+      }
+    }
+  }
+  return out;
+}
+
+/**
+ * Drop `settingsRoute` / `devicesRoute` lines that only existed to point at the old kit page
+ * (they equal an old default or the migrated route). Other values are kept.
+ * @returns {string} the new source (unchanged when nothing matched)
+ */
+export function stripRedundantRouteLines(source, legacy) {
+  const old = { settings: new Set([LEGACY_ROUTES.settings]), devices: new Set([LEGACY_ROUTES.devices]) };
+  for (const l of legacy) old[l.key].add(l.route);
+  let next = source;
+  for (const [key, field] of [['settings', 'settingsRoute'], ['devices', 'devicesRoute']]) {
+    next = next.replace(new RegExp(`^[ \\t]*${field}:[ \\t]*['"]([^'"]+)['"],?[^\\n]*\\n`, 'gm'), (line, route) => (old[key].has(route) ? '' : line));
+  }
+  return next;
 }
 
 /* ───────────────────────────── navigation ───────────────────────────── */
@@ -193,9 +249,9 @@ export function insertNavEntry(source, kind, name, title = 'Settings') {
 /** What to add by hand when the navigator cannot be edited safely. */
 export function navSnippet(route, nav, base = 'app') {
   const lines = [];
-  if (nav) {
-    const name = screenNameFor(nav.dir, `${base}${route}.tsx`);
-    lines.push(`  In ${nav.file}, inside <${nav.kind}>:`, `    <${nav.kind}.Screen name="${name ?? route.replace(/^\//, '')}" options={{ title: 'Settings' }} />`, '  Or link to it from anywhere:');
+  const name = nav ? screenNameFor(nav.dir, `${base}${route}.tsx`) : null;
+  if (nav && name) {
+    lines.push(`  In ${nav.file}, inside <${nav.kind}>:`, `    <${nav.kind}.Screen name="${name}" options={{ title: 'Settings' }} />`, '  Or link to it from anywhere:');
   } else lines.push('  Link to it from anywhere (a menu item, a button):');
   lines.push("    import { Link, router } from 'expo-router';", `    <Link href="${route}">Settings</Link>        // or: router.push('${route}')`);
   return lines.join('\n');

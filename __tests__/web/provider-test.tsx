@@ -74,25 +74,25 @@ const advance = (ms: number) => act(() => void jest.advanceTimersByTime(ms));
 const collisionWarnings = () => warn.mock.calls.filter((c) => String(c[0]).includes('is being rendered by another screen'));
 
 describe('route collision warning (dev)', () => {
-  it('warns when /settings is current but another screen renders there', () => {
+  it('warns when /mobile-kit/settings is current but another screen renders there', () => {
     setup();
-    mockPath.current = '/settings';
+    mockPath.current = '/mobile-kit/settings';
     mount(<MobileKitProvider><div>the app's own settings screen</div></MobileKitProvider>);
     advance(ROUTE_CHECK_DELAY_MS + 100);
     expect(collisionWarnings()).toHaveLength(1);
-    expect(String(collisionWarnings()[0][0])).toContain('"/settings"');
+    expect(String(collisionWarnings()[0][0])).toContain('"/mobile-kit/settings"');
   });
 
   it("stays quiet when the kit's own Settings screen is what renders", async () => {
     setup();
-    mockPath.current = '/settings';
+    mockPath.current = '/mobile-kit/settings';
     mount(<MobileKitProvider><SettingsScreen /></MobileKitProvider>);
     await settle();
     advance(ROUTE_CHECK_DELAY_MS + 100);
     expect(collisionWarnings()).toHaveLength(0);
   });
 
-  it('follows a custom settingsRoute', () => {
+  it('follows a custom settingsRoute (rarely needed)', () => {
     setup({ settingsRoute: '/kit-settings' });
     mockPath.current = '/kit-settings';
     mount(<MobileKitProvider><div>something else</div></MobileKitProvider>);
@@ -106,7 +106,7 @@ describe('route collision warning (dev)', () => {
     g.__DEV__ = false;
     try {
       setup();
-      mockPath.current = '/settings';
+      mockPath.current = '/mobile-kit/settings';
       mount(<MobileKitProvider><div>x</div></MobileKitProvider>);
       advance(ROUTE_CHECK_DELAY_MS + 100);
       expect(collisionWarnings()).toHaveLength(0);

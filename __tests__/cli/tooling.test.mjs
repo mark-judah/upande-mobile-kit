@@ -36,10 +36,10 @@ test('snake makes an apk stem', () => {
 test('init scaffolds routes, config stub, workflow, plugin entry and scripts, and never overwrites', () => {
   const dir = app();
   const out = init(['--repo', 'acme/my-app', '--branch', 'trunk', '--site', 'https://erp.example.com', '--kit-repo', 'acme/mobile-kit'], dir);
-  for (const f of ['app/settings.tsx', 'app/devices.tsx', 'src/mobile-kit.ts', '.github/workflows/release.yml']) {
+  for (const f of ['app/mobile-kit/settings.tsx', 'app/mobile-kit/devices.tsx', 'src/mobile-kit.ts', '.github/workflows/release.yml']) {
     assert.ok(existsSync(join(dir, f)), f);
   }
-  assert.match(readFileSync(join(dir, 'app/settings.tsx'), 'utf8'), /SettingsRoute as default.*@upande\/mobile-kit/);
+  assert.match(readFileSync(join(dir, 'app/mobile-kit/settings.tsx'), 'utf8'), /SettingsRoute as default.*@upande\/mobile-kit/);
   const cfg = readFileSync(join(dir, 'src/mobile-kit.ts'), 'utf8');
   assert.match(cfg, /appName: 'My App'/);
   assert.match(cfg, /githubRepo: 'acme\/my-app'/);
@@ -63,14 +63,14 @@ test('init scaffolds routes, config stub, workflow, plugin entry and scripts, an
 
   // second run: the kit's own files are kept, the plugin is not duplicated
   const again = init(['--repo', 'acme/my-app', '--site', 'https://erp.example.com'], dir);
-  assert.match(again, /skip   app\/settings\.tsx/);
+  assert.match(again, /skip   app\/mobile-kit\/settings\.tsx/);
   assert.equal(JSON.parse(readFileSync(join(dir, 'app.json'), 'utf8')).expo.plugins.length, 1);
-  // a page of the app's own at /settings is a route collision: nothing is overwritten, not even with --force
+  // a page of the app's own at /settings is simply left alone: the kit lives under /mobile-kit/, even with --force
   writeFileSync(join(dir, 'app/settings.tsx'), '// mine');
-  assert.throws(() => init(['--repo', 'acme/my-app', '--force'], dir), /\/settings is already served by:\n\s+- app\/settings\.tsx/);
+  const forced = init(['--repo', 'acme/my-app', '--force'], dir);
   assert.equal(readFileSync(join(dir, 'app/settings.tsx'), 'utf8'), '// mine');
+  assert.match(forced, /your \/settings is untouched \(app\/settings\.tsx\); the kit lives at \/mobile-kit\/settings/);
   // --force still regenerates the config
-  writeFileSync(join(dir, 'app/settings.tsx'), "export { SettingsRoute as default } from '@upande/mobile-kit';\n");
   writeFileSync(join(dir, 'src/mobile-kit.ts'), '// stale');
   init(['--repo', 'acme/my-app', '--force'], dir);
   assert.match(readFileSync(join(dir, 'src/mobile-kit.ts'), 'utf8'), /configureMobileKit/);
@@ -100,8 +100,9 @@ test('doctor flags an unconfigured app and passes a configured one', async () =>
   mkdirSync(join(dir, '.github/workflows'), { recursive: true });
   writeFileSync(join(dir, 'src/mobile-kit.ts'), 'configureMobileKit({})');
   writeFileSync(join(dir, 'app/_layout.tsx'), "import '@/src/mobile-kit'; <MobileKitProvider/>");
-  writeFileSync(join(dir, 'app/settings.tsx'), "export { SettingsRoute as default } from '@upande/mobile-kit';");
-  writeFileSync(join(dir, 'app/devices.tsx'), "export { DevicesRoute as default } from '@upande/mobile-kit';");
+  mkdirSync(join(dir, 'app/mobile-kit'), { recursive: true });
+  writeFileSync(join(dir, 'app/mobile-kit/settings.tsx'), "export { SettingsRoute as default } from '@upande/mobile-kit';");
+  writeFileSync(join(dir, 'app/mobile-kit/devices.tsx'), "export { DevicesRoute as default } from '@upande/mobile-kit';");
   writeFileSync(join(dir, '.github/workflows/release.yml'), '');
   const good = await check(dir);
   assert.deepEqual(good.filter((r) => r.level !== 'ok'), []);

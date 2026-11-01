@@ -8,7 +8,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { probeSite } from './site-checks.mjs';
-import { configuredRoutes, findCollisions, isKitFile, rootLayoutFile, routeFileFor } from './routes.mjs';
+import { configuredRoutes, findCollisions, findLegacyKitFiles, isKitFile, rootLayoutFile, routeFileFor } from './routes.mjs';
 import { parseVersion } from './version-lib.mjs';
 
 const PKG = '@upande/mobile-kit';
@@ -82,11 +82,13 @@ export async function check(root = process.cwd(), { site, devSite, fetchImpl = g
   if (layout.includes('MobileKitProvider')) add('ok', `${layoutName} mounts <MobileKitProvider>.`);
   else add('warn', `${layoutName} does not mount <MobileKitProvider> (no OTA-on-open, APK check or device reporting).`);
   const routes = configuredRoutes(root);
-  for (const [key, flagName] of [['settings', '--settings-route'], ['devices', '--devices-route']]) {
+  const oldFiles = findLegacyKitFiles(root);
+  if (oldFiles.length) add('warn', `an older version put the kit's pages at ${oldFiles.map((o) => o.file).join(' and ')}; they now live under /mobile-kit/ — fix: npx upande-mobile-kit init (moves them; your own screens are not touched).`);
+  for (const key of ['settings', 'devices']) {
     const file = routeFileFor(root, routes[key]);
     const taken = findCollisions(root, routes[key]);
     if (taken.length) {
-      add('fail', `${routes[key]} is also served by ${taken.map((t) => t.file).join(', ')}: the kit's ${key} page is hidden or hides it — fix: re-run init with ${flagName} /kit-${key}, or rename that file.`);
+      add('fail', `${routes[key]} is also served by ${taken.map((t) => t.file).join(', ')}: the kit's ${key} page is hidden or hides it — fix: rename or remove that file (the kit's pages live under /mobile-kit/, so this should not happen).`);
     } else if (!existsSync(join(root, file))) add('warn', `${file} missing (nothing serves ${routes[key]}).`);
     else if (!isKitFile(root, file)) add('fail', `${file} does not re-export the kit's screen (export { ${key === 'devices' ? 'DevicesRoute' : 'SettingsRoute'} as default } from '${PKG}').`);
     else add('ok', `${file} present (${routes[key]}).`);

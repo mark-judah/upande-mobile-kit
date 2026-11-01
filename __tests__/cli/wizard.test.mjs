@@ -117,7 +117,7 @@ test('wizard happy path: asks the few questions, then writes, wraps the layout, 
     ]);
     const cfg = readFileSync(join(root, 'src/mobile-kit.ts'), 'utf8');
     assert.match(cfg, /site: \{ production: 'https:\/\/prod\.example\.com', development: 'http:\/\/localhost:8000' \}/);
-    for (const f of ['app/settings.tsx', 'app/devices.tsx', '.github/workflows/release.yml']) assert.ok(existsSync(join(root, f)), f);
+    for (const f of ['app/mobile-kit/settings.tsx', 'app/mobile-kit/devices.tsx', '.github/workflows/release.yml']) assert.ok(existsSync(join(root, f)), f);
 
     const layout = readFileSync(join(root, 'app/_layout.tsx'), 'utf8');
     assert.match(layout, /import \{ MobileKitProvider \} from '@upande\/mobile-kit';/);
@@ -138,7 +138,7 @@ test('wizard happy path: asks the few questions, then writes, wraps the layout, 
     assert.equal(io.ran.find((r) => r.argv[1] === 'expo').cwd, root);
 
     assert.match(out, /Doctor:\n✓ doctor says fine/);
-    assert.match(out, /Open \/settings in the app \(rendered by app\/settings\.tsx\)/);
+    assert.match(out, /Open \/mobile-kit\/settings in the app \(rendered by app\/mobile-kit\/settings\.tsx\)/);
     assert.deepEqual(loadSaved(root), {
       site: 'https://prod.example.com',
       devSite: 'http://localhost:8000',

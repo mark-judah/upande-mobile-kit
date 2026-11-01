@@ -4,7 +4,7 @@ import { apiMock, auth, setup } from '../helpers';
 jest.mock('expo-router', () => ({
   router: { push: jest.fn(), replace: jest.fn() },
   Redirect: ({ href }: { href: string }) => `REDIRECT:${href}`,
-  usePathname: () => '/settings',
+  usePathname: () => '/mobile-kit/settings',
 }));
 jest.mock('expo-updates', () => ({
   manifest: null,
@@ -154,7 +154,7 @@ describe('unwired useAuth / api / storage (dev notice)', () => {
 describe('DevicesScreen (server render)', () => {
   it('redirects a non-manager back to Settings', () => {
     auth.isSystemManager = false;
-    expect(renderToString(<DevicesScreen />)).toContain('REDIRECT:/settings');
+    expect(renderToString(<DevicesScreen />)).toContain('REDIRECT:/mobile-kit/settings');
   });
 
   it('renders for a System Manager (data loads after mount)', () => {

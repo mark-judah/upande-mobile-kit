@@ -14,7 +14,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { detectHostBiometric, STAND_IN_EFFECT } from './adapters.mjs';
 import { KIT_REPO, NATIVE_MODULES } from './constants.mjs';
-import { configuredRoutes, findCollisions, isKitFile, linkedFrom, rootLayoutFile, routeFileFor } from './routes.mjs';
+import { configuredRoutes, findCollisions, findLegacyKitFiles, isKitFile, linkedFrom, rootLayoutFile, routeFileFor } from './routes.mjs';
 import { probeSite, reachabilityChecks, sitesFrom } from './site-checks.mjs';
 import { parseVersion } from './version-lib.mjs';
 
@@ -66,12 +66,14 @@ export async function verify(root = process.cwd(), { site, devSite, fetchImpl = 
   /* routes */
   const routes = configuredRoutes(root);
   const files = {};
-  for (const [key, flagName] of [['settings', '--settings-route'], ['devices', '--devices-route']]) {
+  const oldFiles = findLegacyKitFiles(root);
+  if (oldFiles.length) add('warn', `an older version put the kit's pages at ${oldFiles.map((o) => o.file).join(' and ')}; they now live under /mobile-kit/`, 'npx upande-mobile-kit init  (moves them and tidies src/mobile-kit.ts; your own screens are not touched)');
+  for (const key of ['settings', 'devices']) {
     const route = routes[key];
     const file = routeFileFor(root, route);
     files[key] = file;
     const taken = findCollisions(root, route);
-    if (taken.length) add('fail', `route ${route} is also served by ${taken.map((t) => t.file).join(', ')}: the kit's page is hidden or hides it`, `npx upande-mobile-kit init ${flagName} /kit-${key}  (or rename that file)`);
+    if (taken.length) add('fail', `route ${route} is also served by ${taken.map((t) => t.file).join(', ')}: the kit's page is hidden or hides it`, 'rename or remove that file (the kit\'s pages live under /mobile-kit/, so this should not happen)');
     else if (!existsSync(join(root, file))) add('fail', `route ${route}: ${file} is missing, so nothing serves it`, 'npx upande-mobile-kit init');
     else if (!isKitFile(root, file)) add('fail', `route ${route}: ${file} does not re-export the kit's screen`, `export { ${key === 'devices' ? 'DevicesRoute' : 'SettingsRoute'} as default } from '${PKG}';`);
     else add('ok', `route ${route} -> ${file}`);

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, type ReactNode } from 'react';
 import { AppState } from 'react-native';
-import { getConfig } from './config';
+import { DEFAULT_DEVICES_ROUTE, DEFAULT_SETTINGS_ROUTE, getConfig } from './config';
 import { UpdateProvider } from './updates/UpdateProvider';
 import { reportInstall } from './devices/install-register';
 import { createForegroundGate, DEFAULT_FOREGROUND_REPORT_MIN_MS } from './devices/foreground-gate';
@@ -35,7 +35,7 @@ function RouteWatcher() {
   const pathname = usePathname();
   useEffect(() => {
     const cfg = getConfig();
-    return watchKitRoute(pathname, { settings: cfg.settingsRoute ?? '/settings', devices: cfg.devicesRoute ?? '/devices' });
+    return watchKitRoute(pathname, { settings: cfg.settingsRoute ?? DEFAULT_SETTINGS_ROUTE, devices: cfg.devicesRoute ?? DEFAULT_DEVICES_ROUTE });
   }, [pathname]);
   return null;
 }

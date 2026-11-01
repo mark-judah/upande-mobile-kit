@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { Alert, Pressable, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { router } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import { CONFIG_GAP_MESSAGES, getConfig, getConfigGaps, type KitTheme } from '../config';
+import { CONFIG_GAP_MESSAGES, DEFAULT_DEVICES_ROUTE, getConfig, getConfigGaps, type KitTheme } from '../config';
 import { missingModules } from '../modules';
 import { registerKitScreen } from '../route-guard';
 import * as Biometric from '../biometric';
@@ -235,7 +235,7 @@ export function SettingsScreen({
         <Card>
           <Pressable
             accessibilityRole="button"
-            onPress={() => router.push((cfg.devicesRoute ?? '/devices') as never)}
+            onPress={() => router.push((cfg.devicesRoute ?? DEFAULT_DEVICES_ROUTE) as never)}
             style={({ pressed }) => [s.row, pressed && { opacity: 0.7 }]}
           >
             <Ionicons name="phone-portrait-outline" size={20} color={cfg.theme.textSecondary} />

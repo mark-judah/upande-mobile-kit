@@ -136,6 +136,10 @@ export type KitApkOptions = {
   autoDownload?: ApkAutoDownload;
 };
 
+/** The kit's pages live in their own folder so they can never collide with a screen the app already has. */
+export const DEFAULT_SETTINGS_ROUTE = '/mobile-kit/settings';
+export const DEFAULT_DEVICES_ROUTE = '/mobile-kit/devices';
+
 export type KitEnvironment = 'development' | 'production';
 export type KitSites = { production: string; development?: string };
 
@@ -190,9 +194,9 @@ export type MobileKitConfig = {
   /** Route the kit navigates to after sign-out / forget device. Default "/login". */
   loginRoute?: string;
   /**
-   * Where the kit's Devices / Settings pages are mounted (the route files you wrote, default `/devices` and
-   * `/settings`). Set these when `init` put the pages on another path to avoid a collision with a screen the
-   * app already has there; the kit's own links use them. Route groups like `(tabs)` are not part of the path.
+   * Where the kit's Devices / Settings pages are mounted. Rarely needed: the defaults live under their own
+   * `/mobile-kit/` folder (`/mobile-kit/devices`, `/mobile-kit/settings`), which no app already uses, so nothing
+   * collides. Only set these if you moved the route files yourself; the kit's own links use them.
    */
   devicesRoute?: string;
   settingsRoute?: string;

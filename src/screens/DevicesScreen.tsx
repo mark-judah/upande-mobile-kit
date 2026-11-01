@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { Redirect } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import { getConfig, type KitTheme } from '../config';
+import { DEFAULT_SETTINGS_ROUTE, getConfig, type KitTheme } from '../config';
 import {
   fetchInstalls,
   mergeInstallRows,
@@ -77,7 +77,7 @@ export function DevicesScreen() {
   const cfg = getConfig();
   useEffect(() => registerKitScreen('devices'), []);
   const { isSystemManager } = cfg.useAuth();
-  return isSystemManager ? <DevicesRegister /> : <Redirect href={(cfg.settingsRoute ?? '/settings') as never} />;
+  return isSystemManager ? <DevicesRegister /> : <Redirect href={(cfg.settingsRoute ?? DEFAULT_SETTINGS_ROUTE) as never} />;
 }
 
 function DevicesRegister() {

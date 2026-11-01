@@ -1,12 +1,10 @@
 /**
  * Dev-only check that the kit's pages are what renders at their routes.
  *
- * Expo Router treats route groups like `(tabs)` as invisible, so
- * `app/(tabs)/settings.tsx` and `app/settings.tsx` are the same URL, and only
- * one of them renders. When that is the app's own screen the kit's Settings
- * page silently never appears. The kit's screens register themselves when they
- * mount; if the current path is a kit route and no kit screen mounted for it
- * shortly after, this says so once.
+ * The kit's pages live under their own `/mobile-kit/` folder, so a collision should be impossible. This is
+ * the safety net for the case where something still renders at that path: the kit's screens register when
+ * they mount; if the current path is a kit route and no kit screen mounted for it shortly after, this says
+ * so once.
  */
 
 export type KitScreenKind = 'settings' | 'devices';
@@ -33,12 +31,10 @@ const normalise = (path: string | null | undefined): string => {
 };
 
 export function collisionMessage(kind: KitScreenKind, route: string): string {
-  const file = kind === 'settings' ? 'settings' : 'devices';
   return (
     `[@upande/mobile-kit] "${route}" is being rendered by another screen, not the kit's ${kind === 'settings' ? 'Settings' : 'Devices'} page. ` +
-    `Expo Router ignores route groups like (tabs), so app/(tabs)/${file}.tsx and app/${file}.tsx are the same URL and only one renders. ` +
-    `Fix: put the kit's page on another path (e.g. app/kit-${file}.tsx) and set configureMobileKit({ ${kind}Route: '/kit-${file}' }), ` +
-    `or rename/remove the other screen. Run \`npx upande-mobile-kit doctor\` to list the conflicting files.`
+    `The kit's pages normally live under /mobile-kit/, so another file must be serving this path. ` +
+    `Run \`npx upande-mobile-kit doctor\` to list it, then rename or remove it.`
   );
 }
 
