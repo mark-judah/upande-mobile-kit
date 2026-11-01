@@ -59,7 +59,7 @@
   "bugs": {
     "url": "https://github.com/mark-judah/upande-mobile-kit/issues"
   },
-  "author": "Upande",
+  "author": "Upande <dev@upande.com>",
   "keywords": [
     "expo",
     "react-native",

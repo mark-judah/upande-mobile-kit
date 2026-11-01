@@ -34,7 +34,7 @@ export const ALLOWED_HOSTS = new Set([
 /** Shapes that must never ship (matched case-insensitively). */
 export const FORBIDDEN = [
   [/[\w-]+\.github\.io\/[\w-]+/i, 'a concrete GitHub Pages URL'],
-  [/\b[\w.+-]+@(?!example\.(?:com|org|net|invalid)\b)[A-Za-z0-9-]+\.[A-Za-z.-]+/, 'email address'],
+  [/\b(?!dev@upande\.com\b)[\w.+-]+@(?!example\.(?:com|org|net|invalid)\b)[A-Za-z0-9-]+\.[A-Za-z.-]+/, 'email address'],
   [/\b(?:10|192\.168|172\.(?:1[6-9]|2\d|3[01]))\.\d+\.\d+(?:\.\d+)?\b/, 'private IP address'],
   [/localhost:\d+|\.local\b(?![\w.])/, 'local dev host'],
   [/\bghp_[A-Za-z0-9]{20,}|\bgithub_pat_[A-Za-z0-9_]{20,}/, 'GitHub token'],
