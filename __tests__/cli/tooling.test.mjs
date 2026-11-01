@@ -1,0 +1,214 @@
+import assert from 'node:assert/strict';
+import { execFileSync } from 'node:child_process';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { createRequire } from 'node:module';
+import { test } from 'node:test';
+import { check } from '../../cli/doctor.mjs';
+import { backendPlan, commandLine, defaultOtaBaseUrl, manifestUrl, repoFromRemote, run as init, snake } from '../../cli/init.mjs';
+import { denyPatternsFromEnv, scanText } from '../../cli/check-shipped.mjs';
+
+const require = createRequire(import.meta.url);
+
+function app(extra = {}) {
+  const dir = mkdtempSync(join(tmpdir(), 'kit-app-'));
+  writeFileSync(
+    join(dir, 'app.json'),
+    JSON.stringify({ expo: { name: 'My App', version: '1.0.0', android: { package: 'com.example.myapp' }, ...extra } }),
+  );
+  writeFileSync(join(dir, 'package.json'), JSON.stringify({ name: 'my-app', scripts: { start: 'expo start' }, dependencies: {} }));
+  return dir;
+}
+
+test('repoFromRemote reads https and ssh remotes', () => {
+  assert.equal(repoFromRemote('https://github.com/acme/app.git'), 'acme/app');
+  assert.equal(repoFromRemote('git@github.com:acme/app.git'), 'acme/app');
+  assert.equal(repoFromRemote('https://github.com/acme/app'), 'acme/app');
+  assert.equal(repoFromRemote('https://gitlab.example.com/acme/app'), '');
+});
+
+test('snake makes an apk stem', () => {
+  assert.equal(snake('Field Notes Pro'), 'field_notes_pro');
+  assert.equal(snake(' My  App! '), 'my_app');
+});
+
+test('init scaffolds routes, config stub, workflow, plugin entry and scripts, and never overwrites', () => {
+  const dir = app();
+  const out = init(['--repo', 'acme/my-app', '--branch', 'trunk', '--site', 'https://erp.example.com', '--kit-repo', 'acme/mobile-kit'], dir);
+  for (const f of ['app/settings.tsx', 'app/devices.tsx', 'src/mobile-kit.ts', '.github/workflows/release.yml']) {
+    assert.ok(existsSync(join(dir, f)), f);
+  }
+  assert.match(readFileSync(join(dir, 'app/settings.tsx'), 'utf8'), /SettingsRoute as default.*@upande\/mobile-kit/);
+  const cfg = readFileSync(join(dir, 'src/mobile-kit.ts'), 'utf8');
+  assert.match(cfg, /appName: 'My App'/);
+  assert.match(cfg, /githubRepo: 'acme\/my-app'/);
+  assert.match(cfg, /site: 'https:\/\/erp\.example\.com'/);
+  const wf = readFileSync(join(dir, '.github/workflows/release.yml'), 'utf8');
+  assert.match(wf, /branches: \[trunk\]/);
+  assert.match(wf, /uses: acme\/mobile-kit\/\.github\/workflows\/release\.yml@v0/);
+  assert.match(wf, /app-name: "My App", apk-name: my_app/);
+  assert.doesNotMatch(wf, /__/);
+  const expo = JSON.parse(readFileSync(join(dir, 'app.json'), 'utf8')).expo;
+  assert.deepEqual(expo.plugins, ['@upande/mobile-kit']);
+  assert.equal(expo.updates.url, 'https://erp.example.com/api/method/upande_mobile.api.ota.manifest?app=My%20App');
+  assert.equal(expo.extra.otaBaseUrl, 'https://acme.github.io/my-app/ota');
+  assert.equal(expo.runtimeVersion, '1.0');
+  assert.equal(expo.android.versionCode, 5000);
+  const pkg = JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8'));
+  assert.equal(pkg.scripts['ota:build'], 'upande-mobile-kit publish-ota');
+  assert.equal(pkg.scripts.start, 'expo start');
+  assert.match(out, /Last steps/);
+  assert.match(out, /bench get-app/); // no --bench: the commands are printed
+
+  // second run: nothing overwritten, plugin not duplicated
+  writeFileSync(join(dir, 'app/settings.tsx'), '// mine');
+  const again = init(['--repo', 'acme/my-app', '--site', 'https://erp.example.com'], dir);
+  assert.equal(readFileSync(join(dir, 'app/settings.tsx'), 'utf8'), '// mine');
+  assert.match(again, /skip   app\/settings\.tsx/);
+  assert.equal(JSON.parse(readFileSync(join(dir, 'app.json'), 'utf8')).expo.plugins.length, 1);
+  // --force does overwrite
+  init(['--repo', 'acme/my-app', '--force'], dir);
+  assert.match(readFileSync(join(dir, 'app/settings.tsx'), 'utf8'), /SettingsRoute/);
+});
+
+test('init explains what is missing', () => {
+  assert.throws(() => init([], mkdtempSync(join(tmpdir(), 'kit-empty-'))), /No app\.json/);
+  assert.throws(() => init([], app()), /--repo/);
+});
+
+test('doctor flags an unconfigured app and passes a configured one', async () => {
+  const bad = await check(app());
+  assert.ok(bad.some((r) => r.level === 'fail' && /runtimeVersion/.test(r.msg)));
+  assert.ok(bad.some((r) => r.level === 'fail' && /otaBaseUrl/.test(r.msg)));
+  assert.ok(bad.some((r) => r.level === 'fail' && /not in package.json/.test(r.msg)));
+
+  const dir = app({
+    runtimeVersion: '1.0',
+    updates: { enabled: true, url: 'https://example.com/m' },
+    extra: { otaBaseUrl: 'https://example.com/ota' },
+    plugins: ['@upande/mobile-kit'],
+  });
+  const dev = { '@upande/mobile-kit': '^0.1.0', 'expo-updates': '*', 'expo-constants': '*', 'expo-file-system': '*', 'expo-router': '*', 'expo-intent-launcher': '*', 'expo-local-authentication': '*', 'expo-network': '*', 'expo-device': '*', 'expo-battery': '*', 'expo-localization': '*', '@react-native-async-storage/async-storage': '*' };
+  writeFileSync(join(dir, 'package.json'), JSON.stringify({ name: 'x', dependencies: dev }));
+  mkdirSync(join(dir, 'src'));
+  mkdirSync(join(dir, 'app'));
+  mkdirSync(join(dir, '.github/workflows'), { recursive: true });
+  writeFileSync(join(dir, 'src/mobile-kit.ts'), 'configureMobileKit({})');
+  writeFileSync(join(dir, 'app/_layout.tsx'), "import '@/src/mobile-kit'; <MobileKitProvider/>");
+  writeFileSync(join(dir, 'app/settings.tsx'), '');
+  writeFileSync(join(dir, 'app/devices.tsx'), '');
+  writeFileSync(join(dir, '.github/workflows/release.yml'), '');
+  const good = await check(dir);
+  assert.deepEqual(good.filter((r) => r.level !== 'ok'), []);
+});
+
+test('doctor --site checks the manifest endpoint answers with the protocol header', async () => {
+  const dir = app({ runtimeVersion: '1.0' });
+  const seen = [];
+  const ok = await check(dir, {
+    site: 'https://site.example.com/',
+    fetchImpl: async (url, init) => {
+      seen.push([url, init.headers['expo-runtime-version']]);
+      return { status: 204, headers: { get: (k) => (k === 'expo-protocol-version' ? '1' : null) } };
+    },
+  });
+  assert.ok(ok.some((r) => r.level === 'ok' && /site OTA endpoint/.test(r.msg)));
+  assert.equal(seen[0][0], 'https://site.example.com/api/method/upande_mobile.api.ota.manifest?app=My%20App');
+  assert.equal(seen[0][1], '1.0');
+  const bad = await check(dir, { site: 'https://site.example.com', fetchImpl: async () => ({ status: 200, headers: { get: () => null } }) });
+  assert.ok(bad.some((r) => r.level === 'fail' && /expo-protocol-version/.test(r.msg)));
+  const down = await check(dir, { site: 'https://site.example.com', fetchImpl: async () => { throw new Error('ECONNREFUSED'); } });
+  assert.ok(down.some((r) => r.level === 'fail' && /could not reach/.test(r.msg)));
+});
+
+test('the updates-url plugin substitutes the runtime and stores otaBaseUrl', () => {
+  const withUpdatesUrl = require('../../plugins/withUpdatesUrl.js');
+  const out = withUpdatesUrl({ runtimeVersion: '1.2', extra: { keep: 1 } }, { manifestUrl: 'https://x.example.com/m?rt={runtime}', otaBaseUrl: 'https://x.example.com/ota' });
+  assert.equal(out.updates.url, 'https://x.example.com/m?rt=1.2');
+  assert.equal(out.updates.enabled, true);
+  assert.deepEqual(out.extra, { keep: 1, otaBaseUrl: 'https://x.example.com/ota' });
+  const cfg = { name: 'x' };
+  assert.equal(withUpdatesUrl(cfg, {}), cfg);
+});
+
+test('the publish gate catches hostnames, personal names and credential shapes', () => {
+  const found = (text) => scanText('f.txt', text);
+  assert.ok(found('see https://staging.example.org').length);
+  assert.ok(found('a person: dev@company.io').length);
+  assert.ok(found('https://owner.github.io/x').length);
+  assert.ok(found('host 192.168.88.231').length);
+  assert.ok(found('ghp_abcdefghijklmnopqrstuvwxyz0123456789').length);
+  assert.ok(found('api_key: "abcd1234efgh5678"').length);
+  assert.ok(found('const k = "0123456789abcdef0123456789abcdef"').length);
+  assert.ok(found('-----BEGIN RSA PRIVATE KEY-----').length);
+  assert.ok(found('https://unlisted-host.example.net/path').length);
+  // names that must never ship come from the environment, never from this file
+  assert.deepEqual(scanText('f.txt', 'secret-codename here'), []);
+  assert.ok(scanText('f.txt', 'secret-codename here', denyPatternsFromEnv('secret-codename;other')).length);
+  assert.deepEqual(denyPatternsFromEnv(''), []);
+  // fine
+  assert.deepEqual(found('https://github.com/acme/app and https://docs.expo.dev/x and https://your.site'), []);
+  assert.deepEqual(found("url: 'https://<site>/api/method/x'"), []);
+});
+
+test('the CLI binary prints help and rejects unknown commands', () => {
+  const bin = join(import.meta.dirname, '../../bin/upande-mobile-kit.mjs');
+  assert.match(execFileSync('node', [bin, '--help'], { encoding: 'utf8' }), /init .*wire this Expo app/);
+  assert.throws(() => execFileSync('node', [bin, 'nope'], { stdio: 'pipe' }));
+  const dir = app();
+  assert.match(execFileSync('node', [bin, 'version'], { cwd: dir, encoding: 'utf8' }), /1\.0\.0 -> 1\.0\.1/);
+});
+
+test('backendPlan lists get-app, install-app and the register step; hasApp skips get-app', () => {
+  const base = { benchSite: 'erp.example.com', backendRepo: 'https://github.com/acme/upande_mobile.git', appName: 'My App', githubRepo: 'acme/my-app', otaBaseUrl: 'https://acme.github.io/my-app/ota' };
+  const plan = backendPlan(base);
+  assert.deepEqual(plan[0].argv, ['bench', 'get-app', 'https://github.com/acme/upande_mobile.git']);
+  assert.deepEqual(plan[1].argv, ['bench', '--site', 'erp.example.com', 'install-app', 'upande_mobile']);
+  assert.deepEqual(plan[2].argv.slice(0, 5), ['bench', '--site', 'erp.example.com', 'execute', 'upande_mobile.api.register_app']);
+  const kw = JSON.parse(plan[2].argv[6]);
+  assert.deepEqual(kw, { app_name: 'My App', github_repo: 'acme/my-app', ota_base_url: 'https://acme.github.io/my-app/ota', enabled: 1 });
+  assert.equal(backendPlan({ ...base, hasApp: true }).length, 2);
+  assert.match(commandLine(plan[2].argv), /--kwargs '\{"app_name"/);
+});
+
+test('urls: manifest endpoint and default OTA base', () => {
+  assert.equal(manifestUrl('https://s.example.com/', 'My App'), 'https://s.example.com/api/method/upande_mobile.api.ota.manifest?app=My%20App');
+  assert.equal(defaultOtaBaseUrl('Acme/My-App'), 'https://acme.github.io/My-App/ota');
+});
+
+test('init --bench runs the plan in order, stops on a failed register, and refuses a placeholder backend repo', () => {
+  const dir = app();
+  const bench = mkdtempSync(join(tmpdir(), 'kit-bench-'));
+  const ran = [];
+  const out = init(['--repo', 'acme/my-app', '--site', 'https://erp.example.com', '--bench', bench, '--backend-repo', 'https://github.com/acme/upande_mobile.git'], dir, {
+    exec: (argv) => { ran.push(argv.slice(0, 5).join(' ')); },
+  });
+  assert.deepEqual(ran.map((r) => r.split(' ').slice(1, 4).join(' ')), ['get-app https://github.com/acme/upande_mobile.git', '--site erp.example.com install-app', '--site erp.example.com execute']);
+  assert.match(out, /Backend installed on erp\.example\.com/);
+  // register_app is idempotent, so a failure there is real (e.g. a rejected URL) and must stop init
+  assert.throws(
+    () => init(['--repo', 'acme/my-app', '--site', 'https://erp.example.com', '--bench', bench, '--backend-repo', 'https://github.com/acme/y.git', '--force'], app(), { exec: (argv) => { if (argv.includes('execute')) throw new Error('ValidationError: bad url'); } }),
+    /bad url/,
+  );
+  // a failing get-app aborts
+  assert.throws(
+    () => init(['--repo', 'acme/my-app', '--site', 'https://erp.example.com', '--bench', bench, '--backend-repo', 'https://github.com/acme/x.git', '--force'], app(), { exec: () => { throw new Error('boom'); } }),
+    /failed: boom/,
+  );
+  // placeholder repo: refuse before running anything
+  let called = false;
+  assert.throws(() => init(['--repo', 'acme/my-app', '--site', 'https://erp.example.com', '--bench', bench, '--backend-repo', 'https://github.com/REPLACE-ME/x.git'], app(), { exec: () => { called = true; } }), /placeholder/);
+  assert.equal(called, false);
+});
+
+test('init adds the config import to the root layout once', () => {
+  const dir = app();
+  mkdirSync(join(dir, 'app'), { recursive: true });
+  writeFileSync(join(dir, 'app/_layout.tsx'), "import { Stack } from 'expo-router';\nexport default () => <Stack />;\n");
+  init(['--repo', 'acme/my-app', '--site', 'https://erp.example.com'], dir);
+  init(['--repo', 'acme/my-app', '--site', 'https://erp.example.com'], dir);
+  const layout = readFileSync(join(dir, 'app/_layout.tsx'), 'utf8');
+  assert.equal(layout.match(/mobile-kit/g).length, 1);
+  assert.ok(layout.startsWith("import '../src/mobile-kit';"));
+});

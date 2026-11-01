@@ -1,0 +1,75 @@
+{
+  "name": "@upande/mobile-kit",
+  "version": "0.1.0",
+  "description": "Drop-in Settings page for Expo apps: OTA + APK updates from GitHub, biometric unlock, device register and version info, backed by a Frappe app.",
+  "license": "MIT",
+  "private": true,
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "files": [
+    "src",
+    "bin",
+    "cli",
+    "plugins",
+    "templates",
+    "app.plugin.js",
+    ".github/workflows/release.yml",
+    "README.md",
+    "LICENSE",
+    "!cli/check-shipped.mjs"
+  ],
+  "bin": {
+    "upande-mobile-kit": "bin/upande-mobile-kit.mjs"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "jest --ci && jest --ci -c jest.web.config.js && node --test __tests__/cli/*.test.mjs",
+    "check:pack": "npm pack --dry-run --json > /dev/null && node cli/check-shipped.mjs"
+  },
+  "peerDependencies": {
+    "@expo/vector-icons": ">=14",
+    "expo": ">=54",
+    "expo-constants": ">=18",
+    "expo-file-system": ">=19",
+    "expo-router": ">=6",
+    "expo-updates": ">=29",
+    "react": ">=19",
+    "react-native": ">=0.81"
+  },
+  "peerDependenciesMeta": {
+    "expo-intent-launcher": {
+      "optional": true
+    },
+    "expo-local-authentication": {
+      "optional": true
+    },
+    "expo-network": {
+      "optional": true
+    },
+    "@react-native-async-storage/async-storage": {
+      "optional": true
+    }
+  },
+  "devDependencies": {},
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/mark-judah/upande-mobile-kit.git"
+  },
+  "homepage": "https://github.com/mark-judah/upande-mobile-kit#readme",
+  "bugs": {
+    "url": "https://github.com/mark-judah/upande-mobile-kit/issues"
+  },
+  "author": "Upande",
+  "keywords": [
+    "expo",
+    "react-native",
+    "ota",
+    "expo-updates",
+    "frappe",
+    "apk",
+    "biometric"
+  ],
+  "engines": {
+    "node": ">=20"
+  }
+}

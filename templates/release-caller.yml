@@ -1,0 +1,19 @@
+name: Release
+
+on:
+  push:
+    branches: [main]
+    paths-ignore: ['**/*.md', 'docs/**']
+  workflow_dispatch:
+    inputs:
+      bump: { description: auto | patch | minor | major, type: string, default: auto }
+      set_version: { description: Exact version (starts a new release line), type: string, default: '' }
+
+concurrency: { group: release, cancel-in-progress: false }
+permissions: { contents: write }
+
+jobs:
+  release:
+    uses: __KIT_REPO__/.github/workflows/release.yml@__WORKFLOW_REF__
+    with: { app-name: "__APP_NAME__", apk-name: __APK_NAME__, bump: "${{ inputs.bump || 'auto' }}", set_version: "${{ inputs.set_version || '' }}" }
+    secrets: inherit
