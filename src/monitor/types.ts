@@ -103,6 +103,11 @@ export type MonitorOptions = {
   sampleSuccess?: number;
   /** Record console.warn / console.error as breadcrumbs. Default false. */
   consoleBreadcrumbs?: boolean;
+  /**
+   * Report `console.error(err)` calls that carry an Error (or error-like object), which apps often use for errors
+   * they catch and log. Plain-string errors (React render warnings and the like) are never reported. Default true.
+   */
+  captureConsoleErrors?: boolean;
   /** Hard cap of events per app session. Default 200. */
   maxEventsPerSession?: number;
   /** Seconds between flushes while events wait. Default 30. */

@@ -34,12 +34,9 @@ import {
   describeCollision,
   findCollisions,
   findLegacyKitFiles,
-  findNavigators,
   isKitFile,
   listRouteFiles,
-  navSnippet,
   routeFileFor,
-  screenNameFor,
   stripRedundantRouteLines,
   validateRoute,
 } from './routes.mjs';
@@ -152,13 +149,11 @@ export function rebuildBlock({ added = [], changed = [], pluginAdded = false, up
   ].join('\n');
 }
 
-/** Where to open the page, and what links to it. */
-export function openBlock({ root, route, file }) {
-  const nav = findNavigators(root).find((n) => screenNameFor(n.dir, file) !== null);
+/** Where the page is, and how people reach it: the floating button the provider renders. */
+export function openBlock({ route, file }) {
   return [
-    `Open ${route} in the app (rendered by ${file}).`,
-    'Nothing in your app links to it yet. Add an entry, for example:',
-    navSnippet(route, nav, appDir(root)),
+    `A floating Settings button appears in your app (draggable, bottom right): tap it to open ${route} (rendered by ${file}).`,
+    `Prefer your own entry? Set fab: false in src/mobile-kit.ts and use <KitSettingsButton /> or router.push('${route}').`,
   ].join('\n');
 }
 

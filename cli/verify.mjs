@@ -78,9 +78,14 @@ export async function verify(root = process.cwd(), { site, devSite, fetchImpl = 
     else if (!isKitFile(root, file)) add('fail', `route ${route}: ${file} does not re-export the kit's screen`, `export { ${key === 'devices' ? 'DevicesRoute' : 'SettingsRoute'} as default } from '${PKG}';`);
     else add('ok', `route ${route} -> ${file}`);
   }
+  // How people reach the page: the floating button the provider renders (default), unless the config turned it off.
+  const cfgSource = read('src/mobile-kit.ts') ?? '';
+  const fab = /\bfab\s*:\s*(false|['"]dev['"])/.exec(cfgSource)?.[1]?.replace(/['"]/g, '') ?? 'on';
   const links = linkedFrom(root, routes.settings, [files.settings]);
-  if (links.length) add('ok', `something links to ${routes.settings} (${links[0]}).`);
-  else add('warn', `nothing in your app links to ${routes.settings}, so people cannot find the page`, `add <Link href="${routes.settings}">Settings</Link> (from expo-router) or router.push('${routes.settings}') to a menu, button or navigator`);
+  if (fab === 'on') add('ok', `a floating Settings button opens ${routes.settings} (fab is on).`);
+  else if (links.length) add('ok', `something links to ${routes.settings} (${links[0]}).`);
+  else if (fab === 'dev') add('warn', `the floating Settings button only shows in development builds and nothing in your app links to ${routes.settings}, so people with a release build cannot find the page`, `remove \`fab: 'dev'\` from src/mobile-kit.ts, or add <KitSettingsButton /> / router.push('${routes.settings}') to your own menu`);
+  else add('warn', `fab is off and nothing in your app links to ${routes.settings}, so people cannot find the page`, `remove \`fab: false\` from src/mobile-kit.ts, or add <KitSettingsButton /> (from '${PKG}') or router.push('${routes.settings}') to a menu, button or navigator`);
 
   /* provider + config import */
   const layoutRel = rootLayoutFile(root);

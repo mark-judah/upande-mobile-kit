@@ -9,12 +9,26 @@ jest.mock('expo-constants', () => ({
 let mockKey: string | null = null;
 jest.mock('../src/devices/device-key', () => ({ androidId: () => mockKey }));
 
+// The probes behind the device snapshot: native modules do not exist in jest, so they are scripted here.
+const mockDevice = {
+  collect: jest.fn(),
+  peek: jest.fn(),
+  name: 'OnePlus Nord CE5' as string | undefined,
+};
+jest.mock('../src/monitor/device', () => ({
+  readStaticFacts: () => ({ device_name: mockDevice.name }),
+  collectDeviceFacts: () => mockDevice.collect(),
+  peekDeviceFacts: () => mockDevice.peek(),
+}));
+
 import {
+  collectHealth,
   getInstallId,
   getRegisteredRowId,
   reportInstall,
   resetReportState,
   shouldSkipReport,
+  waitForLaunchRegistration,
 } from '../src/devices/install-register';
 
 const MIN = 60 * 1000;
@@ -130,5 +144,135 @@ describe('reportInstall', () => {
     mockKey = 'android-id';
     await reportInstall({ reason: 'login', user: 'a@x' });
     expect(apiMock.mock.calls[0][0].data.device_key).toBe('host-key');
+  });
+});
+
+describe('the device snapshot on a report', () => {
+  const FULL = {
+    platform: 'android', os_version: '16', os_build: 'CPH2719_16.0.5.1300(EX01)', brand: 'OnePlus', model: 'CPH2719',
+    device_name: 'OnePlus Nord CE5', battery_level: 0.82, battery_state: 'unplugged', low_power_mode: false,
+    storage_free_bytes: 169265586176, storage_total_bytes: 237554860032, memory_total_bytes: 7837360128,
+    network_type: 'cellular', is_connected: true, locale: 'en-KE', timezone: 'Africa/Nairobi',
+    screen: { width: 360, height: 797, scale: 3, font_scale: 1 }, js_engine: 'hermes', build_type: 'dev',
+    missing_modules: ['expo-file-system'], device_key: 'raw-android-id', install_id: 'abc',
+  };
+
+  beforeEach(() => {
+    setup();
+    resetReportState();
+    mockKey = null;
+    mockDevice.name = 'OnePlus Nord CE5';
+    mockDevice.collect.mockReset().mockResolvedValue(FULL);
+    mockDevice.peek.mockReset().mockReturnValue({ platform: 'android', model: 'CPH2719' });
+  });
+
+  it('sends device_info with battery, storage, memory, network ... and the device name', async () => {
+    await reportInstall({ reason: 'login', user: 'a@x' });
+    const data = apiMock.mock.calls[0][0].data;
+    expect(data.device_name).toBe('OnePlus Nord CE5');
+    expect(typeof data.device_info).toBe('string');
+    const info = JSON.parse(data.device_info);
+    expect(info).toMatchObject({
+      battery_level: 0.82, battery_state: 'unplugged', storage_free_bytes: 169265586176, storage_total_bytes: 237554860032,
+      memory_total_bytes: 7837360128, network_type: 'cellular', locale: 'en-KE', timezone: 'Africa/Nairobi',
+      screen: { width: 360, height: 797, scale: 3, font_scale: 1 }, js_engine: 'hermes', build_type: 'dev',
+      os_build: 'CPH2719_16.0.5.1300(EX01)', missing_modules: ['expo-file-system'],
+    });
+  });
+
+  it('keeps the hardware key and install id out of the snapshot (they travel as their own fields)', async () => {
+    mockKey = 'raw-android-id';
+    await reportInstall({ reason: 'login', user: 'a@x' });
+    const data = apiMock.mock.calls[0][0].data;
+    expect(data.device_key).toBe('raw-android-id');
+    expect(data.device_info).not.toContain('raw-android-id');
+    expect(JSON.parse(data.device_info)).not.toHaveProperty('install_id');
+  });
+
+  it('sends null for the device name only when nothing can say it', async () => {
+    mockDevice.name = undefined;
+    await reportInstall({ reason: 'login', user: 'a@x' });
+    expect(apiMock.mock.calls[0][0].data.device_name).toBeNull();
+  });
+
+  it('does not wait on slow probes: after a second it sends what is already known', async () => {
+    jest.useFakeTimers();
+    try {
+      mockDevice.collect.mockReturnValue(new Promise(() => {})); // never answers
+      const pending = reportInstall({ reason: 'login', user: 'a@x' });
+      await jest.advanceTimersByTimeAsync(1100);
+      await pending;
+      const info = JSON.parse(apiMock.mock.calls[0][0].data.device_info);
+      expect(info).toEqual({ platform: 'android', model: 'CPH2719' });
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('still reports when the probes throw', async () => {
+    mockDevice.collect.mockRejectedValue(new Error('no battery'));
+    await reportInstall({ reason: 'login', user: 'a@x' });
+    expect(apiMock).toHaveBeenCalledTimes(1);
+    expect(JSON.parse(apiMock.mock.calls[0][0].data.device_info)).toMatchObject({ platform: 'android' });
+    mockDevice.peek.mockImplementation(() => {
+      throw new Error('boom');
+    });
+    expect(await collectHealth()).toBeUndefined();
+  });
+
+  it('a report stored by an older kit (no health mark) is re-sent on the next launch, once', async () => {
+    const opts = { user: 'a@x', instanceUrl: 'https://site-one.example.com' };
+    const server = 'site-one.example.com';
+    store.set(`${KitKeys.lastReport}:${server}`, String(Date.now() - 60_000));
+    store.set(`${KitKeys.lastUser}:${server}`, 'a@x');
+    store.set(`${KitKeys.lastVersion}:${server}`, '1.2.3|101.2'); // what 0.5.x stored
+    await reportInstall({ ...opts, reason: 'launch' });
+    expect(apiMock).toHaveBeenCalledTimes(1);
+    expect(store.get(`${KitKeys.lastVersion}:${server}`)).toBe('1.2.3|101.2|h1');
+    resetReportState();
+    await reportInstall({ ...opts, reason: 'launch' }); // now inside the hour with the mark: skipped
+    expect(apiMock).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('waitForLaunchRegistration', () => {
+  beforeEach(() => {
+    setup();
+    resetReportState();
+    mockDevice.collect.mockReset().mockResolvedValue({ platform: 'android' });
+    mockDevice.peek.mockReset().mockReturnValue({ platform: 'android' });
+  });
+
+  it('resolves at once when no launch report is running', async () => {
+    await expect(waitForLaunchRegistration()).resolves.toBeUndefined();
+  });
+
+  it('waits for the launch report, then resolves', async () => {
+    let finish: (v: unknown) => void = () => {};
+    apiMock.mockImplementation(() => new Promise((r) => { finish = r; }));
+    const report = reportInstall({ reason: 'launch', user: 'a@x' });
+    let waited = false;
+    const gate = waitForLaunchRegistration().then(() => { waited = true; });
+    await new Promise((r) => setTimeout(r, 20));
+    expect(waited).toBe(false);
+    finish({ message: { install_id: 'row-1' } });
+    await report;
+    await gate;
+    expect(waited).toBe(true);
+    await expect(waitForLaunchRegistration()).resolves.toBeUndefined(); // finished: nothing left to wait for
+  });
+
+  it('gives up after the timeout when the report hangs', async () => {
+    apiMock.mockImplementation(() => new Promise(() => {}));
+    void reportInstall({ reason: 'launch', user: 'a@x' });
+    const started = Date.now();
+    await waitForLaunchRegistration(60);
+    expect(Date.now() - started).toBeGreaterThanOrEqual(50);
+  });
+
+  it('a failed launch report also releases the wait', async () => {
+    apiMock.mockRejectedValue(new Error('offline'));
+    await reportInstall({ reason: 'launch', user: 'a@x' });
+    await expect(waitForLaunchRegistration(50)).resolves.toBeUndefined();
   });
 });

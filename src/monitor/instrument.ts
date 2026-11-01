@@ -35,33 +35,144 @@ export function installErrorHandler(): Undo {
   };
 }
 
-/** Promise rejections nobody handled: Hermes' tracker when present, else the `promise` polyfill's. */
-export function installRejectionTracking(): Undo {
-  const report = (_id: unknown, error: unknown) => {
-    try {
-      captureException(error, { unhandledRejection: true });
-    } catch {
-      // ignore
-    }
+type RejectionOptions = {
+  allRejections?: boolean;
+  onUnhandled?: (id: unknown, error: unknown) => void;
+  onHandled?: (id: unknown) => void;
+};
+
+/** Whether rejections reach the monitor as real error objects (so the log-line fallback is not needed). */
+let rejectionChained = false;
+export function isRejectionChained(): boolean {
+  return rejectionChained;
+}
+
+/**
+ * React Native's own tracker options (the ones that turn an unhandled rejection into the yellow "Possible
+ * Unhandled Promise Rejection" warning in development). Reading them lets the monitor sit in front of that
+ * tracker and still call it, so LogBox keeps working. Null when this React Native has no such module.
+ */
+function reactNativeRejectionOptions(): RejectionOptions | null {
+  /* eslint-disable @typescript-eslint/no-require-imports -- internal modules, loaded only here and only in try */
+  try {
+    const m = require('react-native/Libraries/promiseRejectionTrackingOptions');
+    return (m?.default ?? m) as RejectionOptions;
+  } catch {
+    // another path, or none
+  }
+  try {
+    const m = require('react-native/Libraries/Core/promiseRejectionTrackingOptions');
+    return (m?.default ?? m) as RejectionOptions;
+  } catch {
+    return null;
+  }
+  /* eslint-enable @typescript-eslint/no-require-imports */
+}
+
+/**
+ * Promise rejections nobody handled, on Hermes' tracker or the `promise` polyfill's. In development React
+ * Native has its own tracker feeding LogBox: this one chains to it (reports first, then calls it) instead of
+ * replacing it. When the original options cannot be found, development leaves the tracker alone and the
+ * warning line it prints is turned into a report by `installConsoleErrors`.
+ */
+export function installRejectionTracking(deps: { rnOptions?: () => RejectionOptions | null } = {}): Undo {
+  rejectionChained = false;
+  const rn = __DEV__ ? (deps.rnOptions ?? reactNativeRejectionOptions)() : null;
+  if (__DEV__ && !rn) return noop;
+  const options: RejectionOptions = {
+    allRejections: true,
+    onUnhandled: (id, error) => {
+      try {
+        captureException(error, { unhandledRejection: true });
+      } catch {
+        // ignore
+      }
+      rn?.onUnhandled?.(id, error);
+    },
+    onHandled: (id) => rn?.onHandled?.(id),
   };
   try {
     const h = (globalThis as { HermesInternal?: { hasPromise?: () => boolean; enablePromiseRejectionTracker?: (o: object) => void } }).HermesInternal;
     if (h?.hasPromise?.() && h.enablePromiseRejectionTracker) {
-      h.enablePromiseRejectionTracker({ allRejections: true, onUnhandled: report });
+      h.enablePromiseRejectionTracker(options);
+      rejectionChained = true;
       return noop;
     }
   } catch {
     // fall through to the polyfill
   }
-  // In development React Native's own tracker feeds LogBox; leave it alone.
-  if (__DEV__) return noop;
   try {
     // eslint-disable-next-line @typescript-eslint/no-require-imports -- bundled with React Native
-    require('promise/setimmediate/rejection-tracking').enable({ allRejections: true, onUnhandled: report });
+    require('promise/setimmediate/rejection-tracking').enable(options);
+    rejectionChained = true;
   } catch {
     // not available: rejections are simply not reported
   }
   return noop;
+}
+
+/* ── console.error ── */
+
+/** An Error, or something shaped like one (a name or stack, and a string message). Never a plain string. */
+export function isErrorLike(v: unknown): v is { name?: string; message: string; stack?: string } {
+  if (!v || typeof v !== 'object') return false;
+  if (v instanceof Error) return true;
+  const e = v as { message?: unknown; name?: unknown; stack?: unknown };
+  return typeof e.message === 'string' && (typeof e.name === 'string' || typeof e.stack === 'string');
+}
+
+const UNHANDLED_REJECTION = /^Possible Unhandled Promise Rejection \(id: \d+\):\s*/;
+
+/**
+ * What a `console.error(...)` / `console.warn(...)` call should be reported as, or null. The first argument
+ * that is an Error (or error-like) wins; a leading string rides along as context. Plain strings are not
+ * reported: React and React Native print render warnings that way and they are not errors.
+ */
+export function errorFromConsoleArgs(args: unknown[], level: 'error' | 'warn' = 'error'): { error: unknown; extra: Record<string, unknown> } | null {
+  if (level === 'warn') {
+    const first = args[0];
+    if (typeof first === 'string' && UNHANDLED_REJECTION.test(first) && !rejectionChained) {
+      const err = new Error(first.replace(UNHANDLED_REJECTION, '').slice(0, 500) || 'Unhandled promise rejection');
+      err.name = 'UnhandledPromiseRejection';
+      return { error: err, extra: { source: 'console.warn', unhandledRejection: true } };
+    }
+    return null;
+  }
+  const found = args.find(isErrorLike);
+  if (!found) return null;
+  const extra: Record<string, unknown> = { source: 'console.error' };
+  if (typeof args[0] === 'string') extra.context = args[0].slice(0, 300);
+  return { error: found, extra };
+}
+
+/**
+ * Report `console.error(err)` calls that carry an Error: apps catch errors and log them this way, so they would
+ * never reach the global handler. Chains to the previous console method, never throws, and does only O(1)
+ * work (see core.ts). In development it also turns React Native's unhandled-rejection warning into a report
+ * when the rejection tracker could not be chained.
+ */
+export function installConsoleErrors(): Undo {
+  const orig = { error: console.error, warn: console.warn };
+  const wrap = (level: 'error' | 'warn') => {
+    const original = orig[level] as (...a: unknown[]) => void;
+    return function (this: unknown, ...args: unknown[]) {
+      try {
+        const hit = errorFromConsoleArgs(args, level);
+        if (hit) captureException(hit.error, hit.extra);
+      } catch {
+        // the monitor must never break logging
+      }
+      return original.apply(this, args);
+    };
+  };
+  const error = wrap('error');
+  const warn = wrap('warn');
+  console.error = error;
+  console.warn = warn;
+  return () => {
+    if (console.error === error) console.error = orig.error;
+    if (console.warn === warn) console.warn = orig.warn;
+  };
 }
 
 /** console.warn / console.error as breadcrumbs (opt-in). Only the first string argument, cut, is kept. */
@@ -72,11 +183,13 @@ export function installConsoleBreadcrumbs(): Undo {
       addBreadcrumb({ type: 'console', message: `${level}: ${typeof args[0] === 'string' ? args[0] : '[object]'}` });
       return (orig[level] as (...a: unknown[]) => void).apply(this, args);
     };
-  console.warn = wrap('warn');
-  console.error = wrap('error');
+  const warn = wrap('warn');
+  const error = wrap('error');
+  console.warn = warn;
+  console.error = error;
   return () => {
-    console.warn = orig.warn;
-    console.error = orig.error;
+    if (console.warn === warn) console.warn = orig.warn;
+    if (console.error === error) console.error = orig.error;
   };
 }
 

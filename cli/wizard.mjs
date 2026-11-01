@@ -24,11 +24,7 @@ import {
   describeCollision,
   findCollisions,
   findLegacyKitFiles,
-  findNavigators,
-  insertNavEntry,
-  navSnippet,
   routeFileFor,
-  screenNameFor,
   validateRoute,
 } from './routes.mjs';
 
@@ -567,7 +563,6 @@ async function wizard({ argv, root, flag, yes, noInstall, io, doctorFn }) {
   const depsBefore = readDeps(root);
   const toAdd = NATIVE_MODULES.filter((m) => !depsBefore[m]);
   const present = NATIVE_MODULES.filter((m) => depsBefore[m]);
-  const navs = findNavigators(root).filter((n) => screenNameFor(n.dir, settingsFile) !== null);
   const layoutRel = ['tsx', 'jsx', 'js'].map((e) => `${appDir(root)}/_layout.${e}`).find((r) => existsSync(join(root, r)));
   const fileLine = (rel, what) => `  • ${rel}  (${existsSync(join(root, rel)) ? what[1] : what[0]})`;
 
@@ -600,13 +595,11 @@ async function wizard({ argv, root, flag, yes, noInstall, io, doctorFn }) {
         : `  Backend: print the commands for ${bench} (site ${benchSite}); --no-install`
       : '  Backend: print the commands (no bench chosen)',
   );
-  if (navs[0] && prompting) say(`  Navigation: offer to add a Settings entry to the ${navs[0].kind} in ${navs[0].file}`);
+  say('  Entry point: a floating Settings button appears in your app (nothing in your navigation is edited)');
   say('  • then run doctor\n');
 
   const ok = prompting ? await io.confirm('Apply?', true) : true;
   if (!ok) return 'Nothing was changed.\n';
-  let addNav = false;
-  if (navs[0] && prompting) addNav = await io.confirm(`Add a "Settings" entry to the ${navs[0].kind} in ${navs[0].file}?`, true);
 
   /* ── apply ── */
   const expoBefore = readExpo(root);
@@ -642,17 +635,6 @@ async function wizard({ argv, root, flag, yes, noInstall, io, doctorFn }) {
     } else if (r.status === 'already') log.push(`skip   ${layoutRel} (already has <MobileKitProvider>)`);
     else log.push(`note   ${layoutRel} was not recognised, so it was left alone. Add this yourself:\n${manualLayoutEdit()}`);
   } else log.push('note   no app/_layout file found. Wrap your root component in <MobileKitProvider>:\n' + manualLayoutEdit());
-
-  if (addNav) {
-    const nav = navs[0];
-    const r = insertNavEntry(readFileSync(join(root, nav.file), 'utf8'), nav.kind, screenNameFor(nav.dir, settingsFile), 'Settings');
-    if (r.status === 'inserted') {
-      backup.save(nav.file);
-      writeFileSync(join(root, nav.file), r.source);
-      log.push(`edit   ${nav.file} (added a "Settings" ${nav.kind}.Screen entry)`);
-    } else if (r.status === 'already') log.push(`skip   ${nav.file} (already has a "${screenNameFor(nav.dir, settingsFile)}" screen)`);
-    else log.push(`note   ${nav.file} has a shape I will not edit blindly. Add this yourself:\n${navSnippet(routes.settings, nav, appDir(root))}`);
-  }
 
   if (doNative) {
     try {
@@ -709,7 +691,7 @@ async function wizard({ argv, root, flag, yes, noInstall, io, doctorFn }) {
     updatesChanged: expoBefore.updates?.url !== expoAfter.updates?.url || expoBefore.runtimeVersion !== expoAfter.runtimeVersion,
   });
   if (block) log.push(block, '');
-  log.push(addNav ? `Open ${routes.settings} in the app (rendered by ${settingsFile}); the navigator entry above links to it.` : openBlock({ root, route: routes.settings, file: settingsFile }));
+  log.push(openBlock({ root, route: routes.settings, file: settingsFile }));
   if (backup.files.length) log.push('', backupNote(backup));
   log.push('', 'Next:', `  • npx upande-mobile-kit verify   (checks routes, provider, wiring, native modules, sites and cleartext, with a fix per failure)`, '  • enable GitHub Pages for the gh-pages branch of ' + repo + ' once the first release creates it');
   return `${log.join('\n')}\n`;

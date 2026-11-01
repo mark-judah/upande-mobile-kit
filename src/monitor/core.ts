@@ -1,6 +1,6 @@
 import { AppState, type AppStateStatus, type NativeEventSubscription } from 'react-native';
 import { getConfig, KitKeys } from '../config';
-import { getInstallId } from '../devices/install-register';
+import { getInstallId, waitForLaunchRegistration } from '../devices/install-register';
 import { RingBuffer } from './buffer';
 import { appBuildFacts, collectDeviceFacts, peekDeviceFacts } from './device';
 import {
@@ -106,9 +106,21 @@ function afterPush(): void {
   else if (!state.timer) schedule(state.opts.flushIntervalSec * 1000);
 }
 
+/**
+ * Error objects already recorded. The same error often arrives twice (thrown, then logged with console.error by
+ * the app or by React Native): the first sighting is the one that counts.
+ */
+let seenErrors = new WeakSet<object>();
+function alreadySeen(err: unknown): boolean {
+  if (!err || typeof err !== 'object') return false;
+  if (seenErrors.has(err)) return true;
+  seenErrors.add(err);
+  return false;
+}
+
 /** Record a thrown error. O(1): the error object is kept as-is until the flush. */
 export function captureException(err: unknown, extra?: Record<string, unknown>): void {
-  if (!state.enabled) return;
+  if (!state.enabled || alreadySeen(err)) return;
   state.raw.push({ t: 'error', ts: Date.now(), err, fatal: false, extra });
   afterPush();
 }
@@ -159,6 +171,7 @@ export function captureApiCall(c: ApiCapture): void {
 /** An unhandled crash: kept like any error, then queued and sent without waiting for the idle timer. */
 export function captureFatal(err: unknown): void {
   if (!state.enabled) return;
+  if (err && typeof err === 'object') seenErrors.add(err);
   state.raw.push({ t: 'error', ts: Date.now(), err, fatal: true });
   // The process may die right after this: build from what is already known, persist, try to send.
   void flushNow({ urgent: true });
@@ -382,7 +395,7 @@ export function flushNow(opts: { urgent?: boolean } = {}): Promise<void> {
       trimQueue();
       await persistQueue();
     }
-    await send();
+    await send(opts.urgent === true);
   })().finally(() => {
     if (flushing === run) flushing = null;
   });
@@ -390,30 +403,49 @@ export function flushNow(opts: { urgent?: boolean } = {}): Promise<void> {
   return run;
 }
 
-async function send(): Promise<void> {
+/** Said once per run, in development only: why nothing is arriving. */
+let loggedPause = false;
+
+/** `urgent`: an unhandled crash, sent without waiting for anything (the process may die any moment). */
+async function send(urgent = false): Promise<void> {
   if (state.sending || state.queue.length === 0) return;
   if (!state.ctx.user) return; // reports need a signed-in session; they wait for the sign-in
   if (Date.now() < state.backoffUntil) return schedule(0);
   state.sending = true;
+  let pausedWait = 0;
   try {
+    // The launch registration goes first: an older server only learns this app exists from it.
+    if (!urgent) await waitForLaunchRegistration();
     const cfg = getConfig();
     const installId = state.queue[0].device.install_id ?? (await getInstallId());
     if (!installId) return;
     let waitMs = state.opts.flushIntervalSec * 1000;
     while (state.queue.length) {
       const chunk = nextChunk(state.queue);
-      const res = await cfg.api<{ message?: { accepted?: number; dropped?: number; next_flush_ms?: number } }>({
+      const res = await cfg.api<{ message?: { accepted?: number; dropped?: number; next_flush_ms?: number; paused?: boolean; reason?: string } }>({
         method: 'POST',
         url: cfg.endpoints.ingest,
         data: { payload: JSON.stringify(buildPayload(chunk, installId, cfg.appName)) },
       });
-      state.queue.splice(0, chunk.length);
       state.failures = 0;
-      const hint = res?.message?.next_flush_ms;
+      const m = res?.message;
+      const hint = m?.next_flush_ms;
       if (typeof hint === 'number' && Number.isFinite(hint)) waitMs = Math.min(10 * 60_000, Math.max(5_000, hint));
+      if (m?.paused === true) {
+        // The server is not taking reports right now (switched off, or the app is not set up yet): keep them,
+        // not discard. A reply that took nothing and did NOT say paused means the events themselves were bad.
+        pausedWait = typeof hint === 'number' && Number.isFinite(hint) ? waitMs : 10 * 60_000;
+        if (__DEV__ && !loggedPause) {
+          loggedPause = true;
+          console.log(`[@upande/mobile-kit] the server is not accepting crash reports yet${m.reason ? ` (${m.reason})` : ''}; they are kept and retried.`);
+        }
+        break;
+      }
+      state.queue.splice(0, chunk.length);
     }
     await persistQueue();
-    if (state.raw.length) schedule(waitMs);
+    if (pausedWait) schedule(pausedWait);
+    else if (state.raw.length) schedule(waitMs);
   } catch {
     state.failures += 1;
     state.backoffUntil = Date.now() + Math.min(LIMITS.backoffBaseMs * 2 ** (state.failures - 1), LIMITS.backoffMaxMs);
@@ -512,6 +544,8 @@ export function resetMonitorForTests(): void {
     failures: 0, backoffUntil: 0, sending: false, lastApiKey: '', lastApiAt: 0, isSecret: makeKeyMatcher(), ingestPath: '',
   });
   flushing = null;
+  seenErrors = new WeakSet<object>();
+  loggedPause = false;
 }
 
 export function monitorStats() {

@@ -170,7 +170,7 @@ test('the kit pages default to /mobile-kit/*, so an app with its own /settings (
   assert.ok(!existsSync(join(root, 'app/settings.tsx')) && !existsSync(join(root, 'app/devices.tsx')));
   assert.equal(readFileSync(join(root, 'app/(tabs)/settings.tsx'), 'utf8'), own); // the host's page is untouched
   assert.match(out, /your \/settings is untouched \(app\/\(tabs\)\/settings\.tsx\); the kit lives at \/mobile-kit\/settings/);
-  assert.match(out, /Open \/mobile-kit\/settings in the app \(rendered by app\/mobile-kit\/settings\.tsx\)/);
+  assert.match(out, /floating Settings button appears in your app[^\n]*open \/mobile-kit\/settings \(rendered by app\/mobile-kit\/settings\.tsx\)/);
 });
 
 test('a fresh init writes the minimal config: no route keys, no other value that equals a default', () => {
@@ -200,7 +200,7 @@ test('--settings-route / --devices-route write the pages there and set settingsR
   assert.match(cfg, /^ {2}settingsRoute: '\/kit-settings',$/m);
   assert.match(cfg, /^ {2}devicesRoute: '\/admin\/kit-devices',$/m);
   assert.deepEqual(configuredRoutes(root), { settings: '/kit-settings', devices: '/admin/kit-devices' });
-  assert.match(out, /Open \/kit-settings in the app \(rendered by app\/kit-settings\.tsx\)/);
+  assert.match(out, /floating Settings button appears in your app[^\n]*open \/kit-settings \(rendered by app\/kit-settings\.tsx\)/);
   // the default paths write no route keys at all
   const { root: plain } = makeApp();
   init(flags, plain);
@@ -226,7 +226,7 @@ test('wizard: a host /settings page is no issue: no route question, pages go und
     assert.ok(existsSync(join(root, 'app/mobile-kit/devices.tsx')));
     assert.equal(readFileSync(join(root, 'app/(tabs)/settings.tsx'), 'utf8'), 'x');
     assert.doesNotMatch(readFileSync(join(root, 'src/mobile-kit.ts'), 'utf8'), /settingsRoute|devicesRoute/);
-    assert.match(out, /Open \/mobile-kit\/settings in the app \(rendered by app\/mobile-kit\/settings\.tsx\)/);
+    assert.match(out, /floating Settings button appears in your app[^\n]*open \/mobile-kit\/settings \(rendered by app\/mobile-kit\/settings\.tsx\)/);
     assert.ok(io.said.some((t) => /Settings at \/mobile-kit\/settings, Devices at \/mobile-kit\/devices/.test(t)));
     assert.match(out, /your \/settings is untouched/);
   }));
@@ -319,40 +319,33 @@ test('findNavigators / screenNameFor: only a navigator in the kit page\'s own fo
   assert.equal(screenNameFor('app/(tabs)', 'app/settings.tsx'), null);
 });
 
-test('wizard offers a Settings entry in the Drawer, inserts it with a backup, and says where to open the page', () =>
+test('wizard does not touch a Drawer or Tabs: no menu question, the layout only gains the provider, and the floating button is announced', () =>
   withHome(async () => {
-    const { root } = makeApp({ 'app/_layout.tsx': DRAWER });
-    // production, dev, backend?, native?, auth skip, apply, add nav entry?
-    const io = scripted(['https://prod.example.com', '', false, false, '', true, true]);
-    const out = await main(['--no-install'], root, { io, doctor: doctorStub });
-    assert.ok(io.asked.some((q) => /Add a "Settings" entry to the Drawer in app\/_layout\.tsx\?/.test(q)));
-    const layout = readFileSync(join(root, 'app/_layout.tsx'), 'utf8');
-    assert.match(layout, /<Drawer\.Screen name="mobile-kit\/settings" options=\{\{ title: 'Settings' \}\} \/>/);
-    assert.match(out, /edit {3}app\/_layout\.tsx \(added a "Settings" Drawer\.Screen entry\)/);
-    assert.match(out, /the navigator entry above links to it/);
-    const stamp = readdirSync(join(root, '.upande-mobile-kit/backup'))[0];
-    assert.equal(readFileSync(join(root, '.upande-mobile-kit/backup', stamp, 'app/_layout.tsx'), 'utf8'), DRAWER);
+    for (const layoutSource of [DRAWER, TABS]) {
+      const { root } = makeApp({ 'app/_layout.tsx': layoutSource });
+      // production, dev, backend?, native?, auth skip, apply  (no navigator question any more)
+      const io = scripted(['https://prod.example.com', '', false, false, '', true]);
+      const out = await main(['--no-install'], root, { io, doctor: doctorStub });
+      assert.ok(!io.asked.some((q) => /Add a "Settings" entry/.test(q)), io.asked.join('\n'));
+      const layout = readFileSync(join(root, 'app/_layout.tsx'), 'utf8');
+      assert.ok(!/name="mobile-kit\/settings"/.test(layout), 'the navigator is not edited');
+      assert.match(layout, /<MobileKitProvider>/);
+      assert.match(io.said.join('\n'), /Entry point: a floating Settings button appears in your app/);
+      assert.match(out, /floating Settings button appears in your app \(draggable, bottom right\): tap it to open \/mobile-kit\/settings/);
+      assert.match(out, /fab: false/);
+      assert.match(out, /<KitSettingsButton \/>/);
+      assert.doesNotMatch(out, /Nothing in your app links to it yet/);
+    }
   }));
 
-test('wizard: declining the navigator entry leaves the layout alone and prints the snippet', () =>
-  withHome(async () => {
-    const { root } = makeApp({ 'app/_layout.tsx': TABS });
-    const io = scripted(['https://prod.example.com', '', false, false, '', true, false]);
-    const out = await main(['--no-install'], root, { io, doctor: doctorStub });
-    assert.ok(!/name="mobile-kit\/settings"/.test(readFileSync(join(root, 'app/_layout.tsx'), 'utf8')));
-    assert.match(out, /Nothing in your app links to it yet/);
-    assert.match(out, /<Tabs\.Screen name="mobile-kit\/settings"/);
-    assert.match(out, /router\.push\('\/mobile-kit\/settings'\)/);
-    assert.match(out, /<Link href="\/mobile-kit\/settings">/);
-  }));
-
-test('plain init prints the open-this-URL block with a snippet; navSnippet names the navigator', () => {
+test('plain init announces the floating button instead of printing a menu snippet', () => {
   const { root } = makeApp({ 'app/_layout.tsx': DRAWER });
   const out = init(flags, root);
-  assert.match(out, /Open \/mobile-kit\/settings in the app \(rendered by app\/mobile-kit\/settings\.tsx\)/);
-  assert.match(out, /In app\/_layout\.tsx, inside <Drawer>:\n\s+<Drawer\.Screen name="mobile-kit\/settings"/);
+  assert.match(out, /floating Settings button appears in your app[^\n]*open \/mobile-kit\/settings \(rendered by app\/mobile-kit\/settings\.tsx\)/);
+  assert.doesNotMatch(out, /Drawer\.Screen/);
+  assert.match(out, /router\.push\('\/mobile-kit\/settings'\)/);
+  // the helpers stay available for hosts that want to script their own entry
   assert.match(navSnippet('/mobile-kit/settings', { file: 'app/_layout.tsx', kind: 'Tabs', dir: 'app' }), /<Tabs\.Screen name="mobile-kit\/settings"/);
-  // a navigator inside a (group) folder cannot hold a page outside it: only the link is offered
   const grouped = navSnippet('/mobile-kit/settings', { file: 'app/(tabs)/_layout.tsx', kind: 'Tabs', dir: 'app/(tabs)' });
   assert.doesNotMatch(grouped, /Tabs\.Screen/);
   assert.match(grouped, /<Link href="\/mobile-kit\/settings">/);
@@ -707,7 +700,7 @@ test('verify: route collision, missing provider, config not first, stand-ins and
   assert.equal(by(/config: api is on the kit's stand-in/).level, 'warn');
   assert.equal(by(/two biometric locks/).level, 'warn');
   assert.match(by(/two biometric locks/).fix, /biometric: 'host'/);
-  assert.equal(by(/nothing in your app links to \/mobile-kit\/settings/).level, 'warn');
+  assert.equal(by(/floating Settings button opens \/mobile-kit\/settings/).level, 'ok');
   for (const r of res.filter((x) => x.level !== 'ok')) assert.ok(r.fix, r.msg);
 });
 
@@ -896,3 +889,26 @@ test('wizard ignores a route remembered by an older version: the pages go to the
     assert.doesNotMatch(readFileSync(join(root, 'src/mobile-kit.ts'), 'utf8'), /settingsRoute|devicesRoute/);
     assert.doesNotMatch(readFileSync(join(root, 'upande-mobile-kit.json'), 'utf8'), /Route/);
   }));
+
+test('verify: the floating button counts as the way in; fab false or "dev" without a link of your own warns with a fix', async () => {
+  const withFab = (fab) => {
+    const root = goodApp();
+    writeFileSync(join(root, 'app/home.tsx'), 'export default () => null;'); // the shared app links to settings; this one does not
+    writeFileSync(join(root, 'src/mobile-kit.ts'), `import { configureMobileKit } from '@upande/mobile-kit';\nconfigureMobileKit({ appName: 'My App', githubRepo: 'acme/my-app', site: 'https://erp.example.com'${fab ? `, fab: ${fab}` : ''} });\n`);
+    return root;
+  };
+  const by = (res, re) => res.find((r) => re.test(r.msg));
+  const on = await verify(withFab(''), { fetchImpl: OK_PROBE });
+  assert.equal(by(on, /floating Settings button opens/).level, 'ok');
+  assert.ok(!by(on, /nothing in your app links/));
+  const off = await verify(withFab('false'), { fetchImpl: OK_PROBE });
+  assert.equal(by(off, /fab is off and nothing in your app links/).level, 'warn');
+  assert.match(by(off, /fab is off/).fix, /KitSettingsButton/);
+  const dev = await verify(withFab("'dev'"), { fetchImpl: OK_PROBE });
+  assert.match(by(dev, /only shows in development builds/).msg, /release build/);
+  // a link of your own satisfies it when the button is off
+  const linked = withFab('false');
+  writeFileSync(join(linked, 'app/home.tsx'), "import { router } from 'expo-router';\nexport default () => { router.push('/mobile-kit/settings'); return null; };\n");
+  const withLink = await verify(linked, { fetchImpl: OK_PROBE });
+  assert.equal(by(withLink, /something links to \/mobile-kit\/settings/).level, 'ok');
+});

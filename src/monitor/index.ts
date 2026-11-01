@@ -1,7 +1,7 @@
 import { getConfig } from '../config';
 import { bindAppState, initState, markStarted, monitorOptions } from './core';
 import {
-  installConsoleBreadcrumbs, installErrorHandler, installFetchInterceptor, installRejectionTracking,
+  installConsoleBreadcrumbs, installConsoleErrors, installErrorHandler, installFetchInterceptor, installRejectionTracking,
 } from './instrument';
 
 export {
@@ -30,12 +30,14 @@ export function startMonitor(): void {
   getConfig(); // fail early, with the fix, when the kit is not configured
   void initState();
   undo = [installErrorHandler(), installRejectionTracking(), installFetchInterceptor()];
+  if (o.captureConsoleErrors !== false) undo.push(installConsoleErrors());
   if (o.consoleBreadcrumbs) undo.push(installConsoleBreadcrumbs());
   bindAppState();
 }
 
 export function stopMonitor(): void {
-  undo.forEach((u) => u());
+  // newest first, so each console wrapper restores the one it replaced
+  [...undo].reverse().forEach((u) => u());
   undo = [];
   markStarted(false);
 }

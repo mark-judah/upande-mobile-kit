@@ -138,7 +138,7 @@ test('wizard happy path: asks the few questions, then writes, wraps the layout, 
     assert.equal(io.ran.find((r) => r.argv[1] === 'expo').cwd, root);
 
     assert.match(out, /Doctor:\n✓ doctor says fine/);
-    assert.match(out, /Open \/mobile-kit\/settings in the app \(rendered by app\/mobile-kit\/settings\.tsx\)/);
+    assert.match(out, /floating Settings button appears in your app[^\n]*open \/mobile-kit\/settings \(rendered by app\/mobile-kit\/settings\.tsx\)/);
     assert.deepEqual(loadSaved(root), {
       site: 'https://prod.example.com',
       devSite: 'http://localhost:8000',

@@ -1,10 +1,11 @@
 import { KitKeys } from '../src/config';
 import { apiMock, setup, store } from './helpers';
 import {
-  addBreadcrumb, buildEvent, captureApiCall, captureException, captureMessage, flushNow, initState, monitorStats,
+  addBreadcrumb, buildEvent, captureApiCall, captureException, captureFatal, captureMessage, flushNow, initState, monitorStats,
   nextChunk, pathTemplate, resetMonitorForTests, setMonitorContext, setMonitoringEnabled,
 } from '../src/monitor/core';
 import { resetDeviceCache } from '../src/monitor/device';
+import { reportInstall, resetReportState } from '../src/devices/install-register';
 import type { MonitorEvent, MonitorPayload } from '../src/monitor/types';
 
 const user = { id: 'test@example.com', full_name: 'Test User', roles: ['System Manager'] };
@@ -18,7 +19,10 @@ async function start(monitor = {}) {
 
 const sent = (): MonitorPayload[] => apiMock.mock.calls.map((c) => JSON.parse(c[0].data.payload));
 
-afterEach(() => resetMonitorForTests());
+afterEach(() => {
+  resetMonitorForTests();
+  resetReportState();
+});
 
 describe('wire contract', () => {
   it('posts one form field `payload` holding {app, install_id, sent_at, events} to the ingest endpoint', async () => {
@@ -297,5 +301,106 @@ describe('buildEvent', () => {
     await start();
     const e = buildEvent({ t: 'error', ts: 1, err: new Error('x'), fatal: false, extra: { token: 't', ok: 1 } }, {});
     expect(e.extra).toEqual({ token: '[redacted]', ok: 1 });
+  });
+});
+
+describe('a server that is not taking reports yet', () => {
+  const PAUSED = { message: { accepted: 0, dropped: 2, next_flush_ms: 3_600_000, paused: true, reason: 'app is not registered yet' } };
+
+  it('keeps the events (and the saved copy) while it says paused, and sends them on a later flush', async () => {
+    await start();
+    setMonitorContext({ user });
+    apiMock.mockResolvedValue(PAUSED);
+    captureException(new Error('first'));
+    captureMessage('second', 'warning');
+    await flushNow();
+    expect(apiMock).toHaveBeenCalledTimes(1);
+    expect(monitorStats().queued).toBe(2);
+    expect(JSON.parse(store.get(KitKeys.monitorQueue)!)).toHaveLength(2);
+
+    apiMock.mockResolvedValue({ message: { accepted: 2, dropped: 0, next_flush_ms: 30_000 } });
+    await flushNow();
+    expect(apiMock).toHaveBeenCalledTimes(2);
+    expect(sent()[1].events.map((e) => e.message)).toEqual(['first', 'second']);
+    expect(monitorStats().queued).toBe(0);
+    expect(store.has(KitKeys.monitorQueue)).toBe(false);
+  });
+
+  it('discards a batch the server took nothing from when it did not say paused (the events were bad)', async () => {
+    await start();
+    setMonitorContext({ user });
+    apiMock.mockResolvedValue({ message: { accepted: 0, dropped: 1, next_flush_ms: 1_800_000 } });
+    captureException(new Error('malformed'));
+    await flushNow();
+    expect(monitorStats().queued).toBe(0);
+    expect(apiMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('a pause part-way through keeps only what was not yet accepted', async () => {
+    await start({ maxEventsPerSession: 500 });
+    setMonitorContext({ user });
+    apiMock.mockResolvedValueOnce({ message: { accepted: 50, dropped: 0, next_flush_ms: 30_000 } }).mockResolvedValue(PAUSED);
+    for (let i = 0; i < 60; i += 1) captureMessage(`m${i}`, 'info');
+    await flushNow();
+    expect(apiMock).toHaveBeenCalledTimes(2);
+    expect(monitorStats().queued).toBe(10);
+    expect(monitorStats().queue[0].message).toBe('m50');
+  });
+});
+
+describe('flush ordering', () => {
+  function gateRegistration() {
+    const order: string[] = [];
+    let finish: (v: unknown) => void = () => {};
+    apiMock.mockImplementation((req: { url: string }) => {
+      if (req.url.includes('register_install')) {
+        order.push('register');
+        return new Promise((r) => {
+          finish = r;
+        });
+      }
+      order.push('ingest');
+      return Promise.resolve({ message: { accepted: 1, dropped: 0 } });
+    });
+    return { order, finish: (v: unknown) => finish(v) };
+  }
+
+  it('the first send waits for the launch registration, so an older server has the app when the report lands', async () => {
+    await start();
+    resetReportState();
+    setMonitorContext({ user });
+    const gate = gateRegistration();
+    const registered = reportInstall({ reason: 'launch', user: user.id });
+    captureException(new Error('first crash'));
+    const flushed = flushNow();
+    await new Promise((r) => setTimeout(r, 80));
+    expect(gate.order).toEqual(['register']); // the crash report has not gone out
+    gate.finish({ message: { install_id: 'row-1' } });
+    await registered;
+    await flushed;
+    expect(gate.order).toEqual(['register', 'ingest']);
+    expect(monitorStats().queued).toBe(0);
+  });
+
+  it('sends straight away when no launch registration is running', async () => {
+    await start();
+    resetReportState();
+    setMonitorContext({ user });
+    captureException(new Error('x'));
+    await flushNow();
+    expect(apiMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('a fatal error does not wait for it: the process may be gone in a moment', async () => {
+    await start();
+    resetReportState();
+    setMonitorContext({ user });
+    const gate = gateRegistration();
+    void reportInstall({ reason: 'launch', user: user.id });
+    captureFatal(new Error('crash'));
+    await new Promise((r) => setTimeout(r, 80));
+    expect(gate.order).toContain('ingest');
+    const ingest = apiMock.mock.calls.map((c) => c[0]).find((r) => String(r.url).includes('monitor.ingest'));
+    expect(JSON.parse(ingest.data.payload).events[0]).toMatchObject({ kind: 'crash', level: 'fatal' });
   });
 });

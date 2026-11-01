@@ -6,12 +6,16 @@ import { reportInstall } from './devices/install-register';
 import { createForegroundGate, DEFAULT_FOREGROUND_REPORT_MIN_MS } from './devices/foreground-gate';
 import { watchKitRoute } from './route-guard';
 import { usePathname } from 'expo-router';
+import { KitFab } from './ui/KitFab';
 import { addBreadcrumb, MonitorErrorBoundary, setMonitorContext, startMonitor } from './monitor';
 
 /**
  * Mount once, inside the host's providers and below its auth gate:
  *
  *   <MobileKitProvider>{children}</MobileKitProvider>
+ *
+ * It also floats a small Settings button over the app (`fab` in the config), the one entry point that works in
+ * any app whatever its navigation looks like.
  *
  * It owns the update state (OTA applied on opening, the daily APK check, the
  * download/install) and keeps the device register current: a report on launch,
@@ -26,6 +30,7 @@ export function MobileKitProvider({ children }: { children: ReactNode }) {
       {__DEV__ ? <RouteWatcher /> : null}
       {monitoring ? <MonitorBridge /> : null}
       {monitoring && monitor?.errorBoundary ? <MonitorErrorBoundary>{children}</MonitorErrorBoundary> : children}
+      <KitFab />
     </UpdateProvider>
   );
 }

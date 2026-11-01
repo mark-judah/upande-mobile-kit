@@ -156,6 +156,13 @@ export function resolveSite(
   return { site: clean(picked), environment: env };
 }
 
+export type KitFabOptions = {
+  /** Which screen edge the button starts on. Default `'right'`. The person can drag it; their spot is remembered. */
+  initialSide?: 'left' | 'right';
+  /** Distance of the button from the bottom of the screen, in dp, before safe-area insets. Default 96. */
+  bottom?: number;
+};
+
 export type MobileKitConfig = {
   /** The Mobile App record's name on the server, e.g. "My App". Also the title of the app. */
   appName: string;
@@ -200,6 +207,14 @@ export type MobileKitConfig = {
    */
   devicesRoute?: string;
   settingsRoute?: string;
+  /**
+   * The floating Settings button, the one entry point that works in any app whatever its navigation looks like.
+   * `true` (default): shown on every screen except the kit's own pages, draggable to either screen edge, hidden
+   * while the keyboard is open. `'dev'`: only in development builds. `false`: never (open the page yourself with
+   * `openKitSettings()`, `<KitSettingsButton />` or `router.push('/mobile-kit/settings')`). An object keeps it on
+   * and sets where it starts.
+   */
+  fab?: boolean | 'dev' | KitFabOptions;
   /**
    * Who owns the biometric lock. `'kit'` (default): the Settings page shows the kit's unlock switch. `'host'`:
    * the app already locks itself (e.g. with expo-local-authentication), so the kit hides its switch and never
@@ -319,6 +334,7 @@ export const KitKeys = {
   localBiometric: 'upande_kit:local_biometric',
   monitorEnabled: 'upande_kit:monitor_enabled',
   monitorQueue: 'upande_kit:monitor_queue',
+  fabPosition: 'upande_kit:fab_position',
 } as const;
 
 /** Default key for a server URL: lower-case host and path, no scheme, no trailing slash. */

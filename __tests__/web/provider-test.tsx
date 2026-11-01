@@ -29,6 +29,7 @@ jest.mock('../../src/devices/install-register', () => ({
   reportInstall: (...a: unknown[]) => mockReport(...a),
   getInstallId: async () => 'install-1',
   getRegisteredRowId: async () => null,
+  waitForLaunchRegistration: async () => {},
 }));
 
 import { MobileKitProvider } from '../../src/MobileKitProvider';

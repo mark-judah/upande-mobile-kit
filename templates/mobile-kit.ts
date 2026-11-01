@@ -14,10 +14,12 @@ configureMobileKit({
   githubRepo: '__GITHUB_REPO__', // owner/repo that publishes the GitHub Releases (APKs)
   site: __SITE_VALUE__,
 __SITE_NOTE____ROUTES____BIOMETRIC__  // apk: { autoDownload: 'wifi' }, // 'wifi' (default) | 'always' | 'never'
+  // fab: true, // the floating Settings button: true (default) | false | 'dev' | { initialSide: 'left', bottom: 96 }
   //
   // Crash & API monitoring is ON by default. The person can turn it off in Settings. Defaults shown:
   // monitor: {
   //   enabled: true,            // false installs nothing
+  //   captureConsoleErrors: true, // console.error(err) calls that carry an Error
   //   captureBodies: true,      // request/response bodies of FAILED calls (secrets redacted, capped)
   //   maxBodyBytes: 8192,
   //   redactKeys: [],           // extra key names to hide, on top of password/token/authorization/cookie/...

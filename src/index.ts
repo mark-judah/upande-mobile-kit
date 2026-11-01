@@ -20,6 +20,7 @@ export type {
   KitUi,
   KitEndpoints,
   KitSites,
+  KitFabOptions,
   KitEnvironment,
   ConfigGap,
   KitDialogButton,
@@ -27,6 +28,8 @@ export type {
 } from './config';
 
 export { MobileKitProvider } from './MobileKitProvider';
+export { openKitSettings } from './open-settings';
+export { KitSettingsButton } from './ui/KitFab';
 export { SettingsScreen } from './screens/SettingsScreen';
 export { DevicesScreen } from './screens/DevicesScreen';
 // Route-file aliases: `export { SettingsRoute as default } from '@upande/mobile-kit';`
