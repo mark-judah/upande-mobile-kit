@@ -6,6 +6,8 @@ export {
   DEFAULT_ENDPOINTS,
   defaultInstanceKey,
   resolveSite,
+  getConfigGaps,
+  CONFIG_GAP_MESSAGES,
 } from './config';
 export type {
   MobileKitConfig,
@@ -17,6 +19,7 @@ export type {
   KitEndpoints,
   KitSites,
   KitEnvironment,
+  ConfigGap,
   KitDialogButton,
   KitDialogIcon,
 } from './config';

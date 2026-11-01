@@ -14,22 +14,27 @@ import { execFileSync } from 'node:child_process';
 import { existsSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
-import { repoFromRemote, run as plainInit } from './init.mjs';
+import { buildAdapters, detectHost, detectHostBiometric, inferMode } from './adapters.mjs';
+import { backupNote, createBackup } from './backup.mjs';
+import { NATIVE_MODULES } from './constants.mjs';
+import { openBlock, rebuildBlock, repoFromRemote, run as plainInit, wiringReport } from './init.mjs';
+import {
+  appDir,
+  DEFAULT_ROUTES,
+  describeCollision,
+  FALLBACK_ROUTES,
+  findCollisions,
+  findNavigators,
+  insertNavEntry,
+  navSnippet,
+  routeFileFor,
+  screenNameFor,
+  validateRoute,
+} from './routes.mjs';
+
+export { NATIVE_MODULES };
 
 export const SAVED_FILE = 'upande-mobile-kit.json';
-export const NATIVE_MODULES = [
-  'expo-updates',
-  'expo-constants',
-  'expo-file-system',
-  'expo-intent-launcher',
-  'expo-local-authentication',
-  'expo-network',
-  // device details on crash reports (model, battery, locale)
-  'expo-device',
-  'expo-battery',
-  'expo-localization',
-  '@react-native-async-storage/async-storage',
-];
 const URL_RE = /^https?:\/\/[^/\s]+/;
 const IMPORT_LINE = "import { MobileKitProvider } from '@upande/mobile-kit';";
 
@@ -162,20 +167,24 @@ export function wrapLayout(source) {
     exprEnd = q;
     tail = '';
   }
-  const inner = source.slice(exprStart, exprEnd).trim();
-  if (!inner.startsWith('<')) return fail;
+  const inner = source.slice(exprStart, exprEnd);
+  if (!inner.trim().startsWith('<')) return fail;
 
   const lineStart = source.lastIndexOf('\n', ret) + 1;
   const ind = /^[ \t]*/.exec(source.slice(lineStart, ret))[0];
-  const body = inner
-    .split('\n')
-    .map((l, i) => (i === 0 ? `${ind}    ${l}` : `  ${l}`))
-    .join('\n');
-  const wrapped = `(\n${ind}  <MobileKitProvider>\n${body}\n${ind}  </MobileKitProvider>\n${ind})`;
-  // `return (` form: replace from "(" to ")" inclusive. `return <X/>` form: replace the expression.
-  const replaceFrom = tail === ')' ? p : exprStart;
-  const replaceTo = tail === ')' ? exprEnd + 1 : exprEnd;
-  let out = source.slice(0, replaceFrom) + wrapped + source.slice(replaceTo);
+  let out;
+  if (tail === ')' && /^[ \t]*\r?\n/.test(inner)) {
+    // `return (\n  <Stack />\n)`: the JSX already sits on its own lines, so add one line before and one after
+    // and leave every existing line exactly as it is (no re-indenting, a small diff).
+    const childInd = /\n([ \t]*)\S/.exec(inner)[1];
+    const trailing = /\s*$/.exec(inner)[0];
+    out = `${source.slice(0, p + 1)}\n${childInd}<MobileKitProvider>${inner.replace(/\s*$/, '')}\n${childInd}</MobileKitProvider>${trailing})${source.slice(exprEnd + 1)}`;
+  } else {
+    // `return <Stack />;` or `return (<Stack />);`: the expression has to move onto its own line.
+    const replaceFrom = tail === ')' ? p : exprStart;
+    const replaceTo = tail === ')' ? exprEnd + 1 : exprEnd;
+    out = `${source.slice(0, replaceFrom)}(\n${ind}  <MobileKitProvider>\n${ind}    ${inner.trim()}\n${ind}  </MobileKitProvider>\n${ind})${source.slice(replaceTo)}`;
+  }
 
   // The import goes after the last top-level import statement.
   const importRe = /^import\s+(?:[\s\S]*?\s+from\s+)?['"][^'"]+['"];?[ \t]*$/gm;
@@ -305,7 +314,7 @@ export async function createIo() {
 
 /* ───────────────────────────── the wizard ───────────────────────────── */
 
-const VALUE_FLAGS = ['site', 'dev-site', 'bench', 'bench-site', 'backend-repo', 'kit-repo', 'name', 'repo', 'ota-base-url', 'apk-name', 'branch'];
+const VALUE_FLAGS = ['site', 'dev-site', 'bench', 'bench-site', 'backend-repo', 'kit-repo', 'name', 'repo', 'ota-base-url', 'apk-name', 'branch', 'settings-route', 'devices-route', 'biometric'];
 
 const sh = (root, ...args) => {
   try {
@@ -354,6 +363,31 @@ export async function main(argv, root = process.cwd(), opts = {}) {
   } finally {
     io.close?.();
   }
+}
+
+/** Dependency map of the app's package.json (dependencies + devDependencies). */
+const readDeps = (root) => {
+  try {
+    const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'));
+    return { ...pkg.devDependencies, ...pkg.dependencies };
+  } catch {
+    return {};
+  }
+};
+const readExpo = (root) => {
+  try {
+    return JSON.parse(readFileSync(join(root, 'app.json'), 'utf8')).expo ?? {};
+  } catch {
+    return {};
+  }
+};
+
+/** Does `file` exist and export `name`? '' when yes, otherwise what is wrong. */
+function checkExport(root, file, name) {
+  const full = join(root, file);
+  if (!existsSync(full) || !statSync(full).isFile()) return `${file} does not exist.`;
+  const src = readFileSync(full, 'utf8');
+  return new RegExp(`export\\s+(?:const|function|async function)\\s+${name}\\b|export\\s*\\{[^}]*\\b${name}\\b`).test(src) ? '' : `${file} does not export ${name}.`;
 }
 
 async function wizard({ argv, root, flag, yes, noInstall, io, doctorFn }) {
@@ -428,6 +462,36 @@ async function wizard({ argv, root, flag, yes, noInstall, io, doctorFn }) {
     }),
   );
 
+  // The kit's two pages must not collide with pages the app already has: stop, and offer another path.
+  const routes = {};
+  for (const key of ['settings', 'devices']) {
+    const flagName = `--${key}-route`;
+    const explicit = flag(`${key}-route`);
+    let route = explicit ?? saved[`${key}Route`] ?? DEFAULT_ROUTES[key];
+    for (;;) {
+      const bad = validateRoute(route);
+      const taken = bad ? [] : findCollisions(root, route);
+      if (!bad && !taken.length) break;
+      const text = bad ? `${flagName}: ${bad}` : describeCollision(route, taken, flagName);
+      if (!prompting || explicit !== undefined && bad) throw new Error(text);
+      say(`\n${text}\n`);
+      const choice = bad
+        ? 'type'
+        : await io.choose(`${route} is taken. What now?`, [
+            { label: `Use ${FALLBACK_ROUTES[key]} for the kit's page (recommended)`, value: 'alt' },
+            { label: 'Type another path', value: 'type' },
+            { label: 'Stop, so I can resolve it myself', value: 'stop' },
+          ]);
+      if (choice === 'stop') throw new Error(`Stopped before writing anything.\n${text}`);
+      route = choice === 'alt' ? FALLBACK_ROUTES[key] : await io.ask(`Path for the kit's ${key} page`, FALLBACK_ROUTES[key]);
+      if (choice === 'alt' && validateRoute(route) === '' && findCollisions(root, route).length === 0) break;
+    }
+    routes[key] = route;
+  }
+  if (routes.settings === routes.devices) throw new Error('The Settings and Devices pages need different paths (--settings-route / --devices-route).');
+  const settingsFile = routeFileFor(root, routes.settings);
+  const devicesFile = routeFileFor(root, routes.devices);
+
   // Backend on a bench on this machine?
   const benches = findBenches({ cwd: root });
   let bench = flag('bench') ?? '';
@@ -471,33 +535,94 @@ async function wizard({ argv, root, flag, yes, noInstall, io, doctorFn }) {
   }
   const installNative = prompting ? await io.confirm('Install the native modules (expo install) now?', saved.installNative ?? true) : saved.installNative ?? true;
 
+  // The app's own session, API client and storage: used when found, asked about when not.
+  const cfgKept = existsSync(join(root, 'src/mobile-kit.ts')) && !argv.includes('--force');
+  const hostLocks = detectHostBiometric(root);
+  const biometric = flag('biometric') ?? (hostLocks.length ? 'host' : 'kit');
+  const wire = argv.includes('--no-adapters') ? { auth: null, api: null, storage: null } : detectHost(root);
+  if (!cfgKept && prompting && !argv.includes('--no-adapters')) {
+    if (!wire.auth) {
+      say('\nI could not find your app\'s sign-in state. Without it, sign-out, the biometric switch and the device register run on stand-ins.');
+      for (;;) {
+        const file = (await io.ask("File exporting your auth store hook, e.g. src/store/auth.ts (blank = skip)", saved.authFile ?? '')).trim();
+        if (!file) break;
+        const exportName = (await io.ask('Name of the exported hook', saved.authExport ?? 'useAuthStore')).trim();
+        const err = checkExport(root, file, exportName);
+        if (!err) {
+          wire.auth = { file, exportName, mode: inferMode(readFileSync(join(root, file), 'utf8'), exportName) };
+          break;
+        }
+        say(`  ${err}`);
+      }
+    }
+    if (!wire.api && 'axios' in readDeps(root)) {
+      for (;;) {
+        const file = (await io.ask('File exporting your API client function `api` (blank = use the kit\'s fetch client)', saved.apiFile ?? '')).trim();
+        if (!file) break;
+        const err = checkExport(root, file, 'api');
+        if (!err) {
+          wire.api = { file, exportName: 'api' };
+          break;
+        }
+        say(`  ${err}`);
+      }
+    }
+  }
+  const adapters = buildAdapters({ root, ...wire });
+
   const pm = detectPackageManager(root);
   const expoInstall = ['npx', 'expo', 'install', ...(pm ? [`--${pm}`] : []), ...NATIVE_MODULES];
   const doBackend = installBackend && !noInstall;
   const doNative = installNative && !noInstall;
+  const backup = createBackup(root, !argv.includes('--no-backup'));
+
+  // What will change, before anything does.
+  const depsBefore = readDeps(root);
+  const toAdd = NATIVE_MODULES.filter((m) => !depsBefore[m]);
+  const present = NATIVE_MODULES.filter((m) => depsBefore[m]);
+  const navs = findNavigators(root).filter((n) => screenNameFor(n.dir, settingsFile) !== null);
+  const layoutRel = ['tsx', 'jsx', 'js'].map((e) => `${appDir(root)}/_layout.${e}`).find((r) => existsSync(join(root, r)));
+  const fileLine = (rel, what) => `  • ${rel}  (${existsSync(join(root, rel)) ? what[1] : what[0]})`;
 
   say('\nThis will:');
-  say(`  • write app/settings.tsx, app/devices.tsx, src/mobile-kit.ts and the release workflow, and edit app.json`);
-  say(`  • production site: ${site}${devSite ? `\n  • dev site:        ${devSite}` : ''}`);
-  say('  • wrap the root layout in <MobileKitProvider>');
-  say(doNative ? `  • run: ${expoInstall.join(' ')}` : `  • (not installing native modules${noInstall ? ': --no-install' : ''})`);
+  say('  Files');
+  say(fileLine(settingsFile, ['create', 'exists, kept']));
+  say(fileLine(devicesFile, ['create', 'exists, kept']));
+  say(fileLine('src/mobile-kit.ts', ['create', 'exists, kept; only the site line is updated']));
+  say(fileLine('.github/workflows/release.yml', ['create', 'exists, kept']));
+  say('  • app.json  (edit: plugin, updates.url, runtimeVersion, extra.otaBaseUrl, extra.mobileKit.sites)');
+  say('  • package.json  (edit: helper scripts)');
+  say(layoutRel ? `  • ${layoutRel}  (edit: import the kit config, wrap in <MobileKitProvider>; the original is backed up to ${backup.relDir}/)` : '  • no root layout found: you add <MobileKitProvider> by hand');
+  say(`  • ${SAVED_FILE}  (remembered answers)`);
+  say('  Dependencies');
+  say(doNative ? `  • expo install adds: ${toAdd.length ? toAdd.join(', ') : '(nothing new)'}` : `  • not installing${noInstall ? ' (--no-install)' : ''}; still missing: ${toAdd.join(', ') || 'nothing'}`);
+  if (doNative && present.length) say(`  • expo install may CHANGE the versions of: ${present.map((m) => `${m} ${depsBefore[m]}`).join(', ')} (the diff is printed afterwards)`);
+  say(`  Sites: production ${site}${devSite ? `, dev ${devSite}` : ''}`);
+  say(`  Pages: Settings at ${routes.settings}, Devices at ${routes.devices}`);
+  say(`  Biometric lock: owned by ${biometric === 'host' ? 'YOUR app (it already uses expo-local-authentication; the kit adds none)' : 'the kit'}`);
+  say(
+    cfgKept
+      ? '  Wiring: src/mobile-kit.ts exists, so it is kept as it is (pass --force to regenerate it)'
+      : `  Wiring: ${adapters.wired.length ? adapters.wired.map((w) => w.split(' <- ')[0]).join(', ') + ' from your app' : 'nothing found'}${adapters.standIns.length ? `; stand-ins: ${adapters.standIns.join(', ')}` : ''}`,
+  );
   say(
     installBackend
       ? doBackend
-        ? `  • install the backend on ${bench} (site ${benchSite})`
-        : `  • print the backend commands for ${bench} (site ${benchSite}); --no-install`
-      : '  • print the backend commands (no bench chosen)',
+        ? `  Backend: install on ${bench} (site ${benchSite})`
+        : `  Backend: print the commands for ${bench} (site ${benchSite}); --no-install`
+      : '  Backend: print the commands (no bench chosen)',
   );
-  say('  • run doctor and remember these answers in upande-mobile-kit.json\n');
+  if (navs[0] && prompting) say(`  Navigation: offer to add a Settings entry to the ${navs[0].kind} in ${navs[0].file}`);
+  say('  • then run doctor\n');
 
   const ok = prompting ? await io.confirm('Apply?', true) : true;
   if (!ok) return 'Nothing was changed.\n';
+  let addNav = false;
+  if (navs[0] && prompting) addNav = await io.confirm(`Add a "Settings" entry to the ${navs[0].kind} in ${navs[0].file}?`, true);
 
   /* ── apply ── */
-  const layoutPath = ['app/_layout.tsx', 'app/_layout.jsx', 'app/_layout.js'].map((r) => join(root, r)).find((p) => existsSync(p));
-  const layoutBefore = layoutPath ? readFileSync(layoutPath, 'utf8') : null;
-
-  const initArgs = ['--name', name, '--repo', repo, '--site', site];
+  const expoBefore = readExpo(root);
+  const initArgs = ['--name', name, '--repo', repo, '--site', site, '--settings-route', routes.settings, '--devices-route', routes.devices, '--biometric', biometric];
   if (devSite) initArgs.push('--dev-site', devSite);
   for (const f of ['ota-base-url', 'apk-name', 'branch', 'kit-repo', 'backend-repo']) if (flag(f)) initArgs.push(`--${f}`, flag(f));
   if (installBackend) {
@@ -505,7 +630,7 @@ async function wizard({ argv, root, flag, yes, noInstall, io, doctorFn }) {
     if (doBackend) initArgs.push('--bench', bench);
   }
   if (argv.includes('--force')) initArgs.push('--force');
-  const log = [plainInit(initArgs, root, { exec: (a) => io.exec(a, { cwd: bench }), lastSteps: false })];
+  const log = [plainInit(initArgs, root, { exec: (a) => io.exec(a, { cwd: bench }), lastSteps: false, wiring: wire, backup })];
 
   // the site line of an existing src/mobile-kit.ts follows a changed answer
   const cfgPath = join(root, 'src/mobile-kit.ts');
@@ -513,21 +638,33 @@ async function wizard({ argv, root, flag, yes, noInstall, io, doctorFn }) {
     const cur = readFileSync(cfgPath, 'utf8');
     const next = updateSiteLine(cur, site, devSite);
     if (next && next !== cur && (!prompting || (await io.confirm('src/mobile-kit.ts already exists with other sites. Update its site line?', true)))) {
+      backup.save('src/mobile-kit.ts');
       writeFileSync(cfgPath, next);
       log.push('edit   src/mobile-kit.ts (site line updated)');
     }
   }
 
-  if (layoutPath) {
-    const rel = layoutPath.slice(root.length + 1);
+  if (layoutRel) {
+    const layoutPath = join(root, layoutRel);
     const r = wrapLayout(readFileSync(layoutPath, 'utf8'));
     if (r.status === 'wrapped') {
-      writeFileSync(`${layoutPath}.bak`, layoutBefore);
+      backup.save(layoutRel);
       writeFileSync(layoutPath, r.source);
-      log.push(`edit   ${rel} (wrapped in <MobileKitProvider>; the original is in ${rel}.bak)`);
-    } else if (r.status === 'already') log.push(`skip   ${rel} (already has <MobileKitProvider>)`);
-    else log.push(`note   ${rel} was not recognised, so it was left alone. Add this yourself:\n${manualLayoutEdit()}`);
+      log.push(`edit   ${layoutRel} (import + <MobileKitProvider> added; other lines untouched)`);
+    } else if (r.status === 'already') log.push(`skip   ${layoutRel} (already has <MobileKitProvider>)`);
+    else log.push(`note   ${layoutRel} was not recognised, so it was left alone. Add this yourself:\n${manualLayoutEdit()}`);
   } else log.push('note   no app/_layout file found. Wrap your root component in <MobileKitProvider>:\n' + manualLayoutEdit());
+
+  if (addNav) {
+    const nav = navs[0];
+    const r = insertNavEntry(readFileSync(join(root, nav.file), 'utf8'), nav.kind, screenNameFor(nav.dir, settingsFile), 'Settings');
+    if (r.status === 'inserted') {
+      backup.save(nav.file);
+      writeFileSync(join(root, nav.file), r.source);
+      log.push(`edit   ${nav.file} (added a "Settings" ${nav.kind}.Screen entry)`);
+    } else if (r.status === 'already') log.push(`skip   ${nav.file} (already has a "${screenNameFor(nav.dir, settingsFile)}" screen)`);
+    else log.push(`note   ${nav.file} has a shape I will not edit blindly. Add this yourself:\n${navSnippet(routes.settings, nav, appDir(root))}`);
+  }
 
   if (doNative) {
     try {
@@ -538,7 +675,31 @@ async function wizard({ argv, root, flag, yes, noInstall, io, doctorFn }) {
     }
   } else log.push(`next   ${expoInstall.join(' ')}`);
 
-  saveAnswers(root, { site, devSite, repo: flag('repo') ? repo : saved.repo, installBackend, bench: installBackend ? bench : saved.bench, benchSite: installBackend ? benchSite : saved.benchSite, installNative });
+  // What `expo install` really changed.
+  const depsAfter = readDeps(root);
+  const added = NATIVE_MODULES.filter((m) => !depsBefore[m] && depsAfter[m]);
+  const changed = Object.keys(depsBefore)
+    .filter((k) => depsAfter[k] && depsAfter[k] !== depsBefore[k])
+    .map((k) => [k, depsBefore[k], depsAfter[k]]);
+  if (added.length || changed.length) {
+    log.push('', 'Dependency changes:');
+    for (const m of added) log.push(`  + ${m} ${depsAfter[m]}`);
+    for (const [k, a, b] of changed) log.push(`  ~ ${k}: ${a} -> ${b}`);
+  }
+
+  saveAnswers(root, {
+    site,
+    devSite,
+    repo: flag('repo') ? repo : saved.repo,
+    installBackend,
+    bench: installBackend ? bench : saved.bench,
+    benchSite: installBackend ? benchSite : saved.benchSite,
+    installNative,
+    settingsRoute: routes.settings !== DEFAULT_ROUTES.settings ? routes.settings : undefined,
+    devicesRoute: routes.devices !== DEFAULT_ROUTES.devices ? routes.devices : undefined,
+    authFile: wire.auth && !detectHost(root).auth ? wire.auth.file : saved.authFile,
+    authExport: wire.auth && !detectHost(root).auth ? wire.auth.exportName : saved.authExport,
+  });
   log.push(`write  ${SAVED_FILE} (remembered; run init again to change anything)`);
 
   const doctor = doctorFn ?? (await import('./doctor.mjs')).run;
@@ -549,12 +710,21 @@ async function wizard({ argv, root, flag, yes, noInstall, io, doctorFn }) {
   } catch (e) {
     report = `\nDoctor could not run: ${e.message}\n`;
   }
+  log.push(report);
 
-  log.push(
-    report,
-    'Next:',
-    '  • start the app and open /settings: OTA, APK, biometric, devices and crash reporting are there',
-    '  • enable GitHub Pages for the gh-pages branch of ' + repo + ' once the first release creates it',
-  );
+  if (!cfgKept) log.push(wiringReport({ adapters, biometric, hostLocks }), '');
+  const expoAfter = readExpo(root);
+  const plugins = (e) => (e.plugins ?? []).map((p) => (Array.isArray(p) ? p[0] : p));
+  const block = rebuildBlock({
+    added,
+    changed: changed.filter(([k]) => NATIVE_MODULES.includes(k)),
+    pending: doNative ? [] : toAdd,
+    pluginAdded: !plugins(expoBefore).includes('@upande/mobile-kit') && plugins(expoAfter).includes('@upande/mobile-kit'),
+    updatesChanged: expoBefore.updates?.url !== expoAfter.updates?.url || expoBefore.runtimeVersion !== expoAfter.runtimeVersion,
+  });
+  if (block) log.push(block, '');
+  log.push(addNav ? `Open ${routes.settings} in the app (rendered by ${settingsFile}); the navigator entry above links to it.` : openBlock({ root, route: routes.settings, file: settingsFile }));
+  if (backup.files.length) log.push('', backupNote(backup));
+  log.push('', 'Next:', `  • npx upande-mobile-kit verify   (checks routes, provider, wiring, native modules, sites and cleartext, with a fix per failure)`, '  • enable GitHub Pages for the gh-pages branch of ' + repo + ' once the first release creates it');
   return `${log.join('\n')}\n`;
 }

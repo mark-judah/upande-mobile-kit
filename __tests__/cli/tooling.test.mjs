@@ -61,15 +61,19 @@ test('init scaffolds routes, config stub, workflow, plugin entry and scripts, an
   assert.match(out, /Last steps/);
   assert.match(out, /bench get-app/); // no --bench: the commands are printed
 
-  // second run: nothing overwritten, plugin not duplicated
-  writeFileSync(join(dir, 'app/settings.tsx'), '// mine');
+  // second run: the kit's own files are kept, the plugin is not duplicated
   const again = init(['--repo', 'acme/my-app', '--site', 'https://erp.example.com'], dir);
-  assert.equal(readFileSync(join(dir, 'app/settings.tsx'), 'utf8'), '// mine');
   assert.match(again, /skip   app\/settings\.tsx/);
   assert.equal(JSON.parse(readFileSync(join(dir, 'app.json'), 'utf8')).expo.plugins.length, 1);
-  // --force does overwrite
+  // a page of the app's own at /settings is a route collision: nothing is overwritten, not even with --force
+  writeFileSync(join(dir, 'app/settings.tsx'), '// mine');
+  assert.throws(() => init(['--repo', 'acme/my-app', '--force'], dir), /\/settings is already served by:\n\s+- app\/settings\.tsx/);
+  assert.equal(readFileSync(join(dir, 'app/settings.tsx'), 'utf8'), '// mine');
+  // --force still regenerates the config
+  writeFileSync(join(dir, 'app/settings.tsx'), "export { SettingsRoute as default } from '@upande/mobile-kit';\n");
+  writeFileSync(join(dir, 'src/mobile-kit.ts'), '// stale');
   init(['--repo', 'acme/my-app', '--force'], dir);
-  assert.match(readFileSync(join(dir, 'app/settings.tsx'), 'utf8'), /SettingsRoute/);
+  assert.match(readFileSync(join(dir, 'src/mobile-kit.ts'), 'utf8'), /configureMobileKit/);
 });
 
 test('init explains what is missing', () => {
@@ -96,8 +100,8 @@ test('doctor flags an unconfigured app and passes a configured one', async () =>
   mkdirSync(join(dir, '.github/workflows'), { recursive: true });
   writeFileSync(join(dir, 'src/mobile-kit.ts'), 'configureMobileKit({})');
   writeFileSync(join(dir, 'app/_layout.tsx'), "import '@/src/mobile-kit'; <MobileKitProvider/>");
-  writeFileSync(join(dir, 'app/settings.tsx'), '');
-  writeFileSync(join(dir, 'app/devices.tsx'), '');
+  writeFileSync(join(dir, 'app/settings.tsx'), "export { SettingsRoute as default } from '@upande/mobile-kit';");
+  writeFileSync(join(dir, 'app/devices.tsx'), "export { DevicesRoute as default } from '@upande/mobile-kit';");
   writeFileSync(join(dir, '.github/workflows/release.yml'), '');
   const good = await check(dir);
   assert.deepEqual(good.filter((r) => r.level !== 'ok'), []);
@@ -118,7 +122,7 @@ test('init --dev-site writes a development/production pair; the bench goes to th
   assert.match(out, /Backend installed on localhost \(development\)/);
   assert.match(out, /Production \(https:\/\/erp\.example\.com\): run these/);
   assert.match(out, /--site erp\.example\.com install-app upande_mobile/);
-  assert.match(out, /doctor --site https:\/\/erp\.example\.com --dev-site http:\/\/localhost:8000/);
+  assert.match(out, /verify --site https:\/\/erp\.example\.com --dev-site http:\/\/localhost:8000/);
   // --dev-site alone is refused: release builds need a production site
   assert.throws(() => init(['--repo', 'acme/my-app', '--dev-site', 'http://localhost:8000'], app()), /--dev-site needs --site/);
   assert.throws(() => init(['--repo', 'acme/my-app', '--site', 'https://e.example.com', '--dev-site', 'localhost'], app()), /--dev-site must be a URL/);

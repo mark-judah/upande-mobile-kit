@@ -189,8 +189,25 @@ export type MobileKitConfig = {
   serverApps?: [string, string][];
   /** Route the kit navigates to after sign-out / forget device. Default "/login". */
   loginRoute?: string;
+  /**
+   * Where the kit's Devices / Settings pages are mounted (the route files you wrote, default `/devices` and
+   * `/settings`). Set these when `init` put the pages on another path to avoid a collision with a screen the
+   * app already has there; the kit's own links use them. Route groups like `(tabs)` are not part of the path.
+   */
   devicesRoute?: string;
   settingsRoute?: string;
+  /**
+   * Who owns the biometric lock. `'kit'` (default): the Settings page shows the kit's unlock switch. `'host'`:
+   * the app already locks itself (e.g. with expo-local-authentication), so the kit hides its switch and never
+   * prompts; the host's own lock is the only one.
+   */
+  biometric?: 'kit' | 'host';
+  /**
+   * Minimum time between two foreground device reports, ms (default 30000). Lock screens, permission prompts
+   * and system dialogs fire repeated "active" events; this keeps them from each reaching the report path.
+   * The report itself is also throttled (15 minutes) in the install register.
+   */
+  foregroundReportMinMs?: number;
   /** Normalises an instance URL into the key per-server state is stored under. */
   instanceKey?: (url: string | null | undefined) => string;
   /** The device's hardware id, when the host has a better source than the Android ID. */
@@ -201,7 +218,18 @@ export type MobileKitConfig = {
   otaOpenWindowMs?: number;
 };
 
+/** Which pieces the host did not pass, so the kit is running on its built-in stand-ins. */
+export type ConfigGap = 'useAuth' | 'api' | 'storage';
+
+export const CONFIG_GAP_MESSAGES: Record<ConfigGap, string> = {
+  useAuth: 'useAuth not configured — device register and sign-out are not connected to your session.',
+  api: 'api not configured — the kit calls your site with plain fetch instead of your signed-in client, so the device register, Devices and crash reports may not be authenticated.',
+  storage: 'storage not configured — the kit keeps its own state in AsyncStorage (or in memory when that is not installed), not in your app storage.',
+};
+
 export type ResolvedConfig = Omit<MobileKitConfig, 'theme' | 'endpoints' | 'api' | 'storage' | 'useAuth' | 'site' | 'environment'> & {
+  /** True for each piece that is a built-in stand-in because the host did not pass its own. */
+  standIns: Record<ConfigGap, boolean>;
   /** The site in use, after choosing the environment. */
   site?: string;
   environment: KitEnvironment;
@@ -223,6 +251,7 @@ export function configureMobileKit(config: MobileKitConfig): void {
   const { site, environment } = resolveSite(config.site, config.environment);
   current = {
     ...config,
+    standIns: { useAuth: !config.useAuth, api: !config.api, storage: !config.storage },
     site,
     environment,
     storage,
@@ -231,6 +260,24 @@ export function configureMobileKit(config: MobileKitConfig): void {
     theme: { ...DEFAULT_THEME, ...config.theme },
     endpoints: { ...DEFAULT_ENDPOINTS, ...config.endpoints },
   };
+  warnConfigGaps();
+}
+
+let warnedGaps = false;
+
+/** The pieces the host has not wired (empty when everything is the host's own). Safe to call before configure. */
+export function getConfigGaps(): ConfigGap[] {
+  if (!current) return [];
+  return (Object.keys(current.standIns) as ConfigGap[]).filter((k) => current!.standIns[k]);
+}
+
+/** One console.warn per process in development, naming each unwired piece. Silent in release builds. */
+function warnConfigGaps(): void {
+  if (warnedGaps || typeof __DEV__ === 'undefined' || !__DEV__) return;
+  const gaps = getConfigGaps();
+  if (!gaps.length) return;
+  warnedGaps = true;
+  console.warn(`[@upande/mobile-kit] ${gaps.map((g) => CONFIG_GAP_MESSAGES[g]).join('\n[@upande/mobile-kit] ')}`);
 }
 
 /** The active configuration. Throws, with the fix, when `configureMobileKit` has not run. */
@@ -250,6 +297,7 @@ export function isConfigured(): boolean {
 /** For tests. */
 export function resetMobileKit(): void {
   current = null;
+  warnedGaps = false;
 }
 
 /** Storage keys the kit owns. Prefixed, so a host's "clear all but these" sweep never touches them. */

@@ -7,6 +7,8 @@
  */
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { probeSite } from './site-checks.mjs';
+import { configuredRoutes, findCollisions, isKitFile, rootLayoutFile, routeFileFor } from './routes.mjs';
 import { parseVersion } from './version-lib.mjs';
 
 const PKG = '@upande/mobile-kit';
@@ -72,33 +74,30 @@ export async function check(root = process.cwd(), { site, devSite, fetchImpl = g
   if (!kitTs) add('fail', 'src/mobile-kit.ts not found — run `npx upande-mobile-kit init`.');
   else if (!kitTs.includes('configureMobileKit(')) add('fail', 'src/mobile-kit.ts does not call configureMobileKit().');
   else add('ok', 'src/mobile-kit.ts configures the kit.');
-  const layout = read('app/_layout.tsx') ?? '';
-  if (/mobile-kit['"]/.test(layout)) add('ok', 'app/_layout.tsx imports the kit config.');
-  else add('warn', "app/_layout.tsx does not import './mobile-kit' — the screens will throw 'not configured'.");
-  if (layout.includes('MobileKitProvider')) add('ok', 'app/_layout.tsx mounts <MobileKitProvider>.');
-  else add('warn', 'app/_layout.tsx does not mount <MobileKitProvider> (no OTA-on-open, APK check or device reporting).');
-  for (const f of ['app/settings.tsx', 'app/devices.tsx']) {
-    if (existsSync(join(root, f))) add('ok', `${f} present.`);
-    else add('warn', `${f} missing (the route will not exist).`);
+  const layoutRel = rootLayoutFile(root);
+  const layout = (layoutRel && read(layoutRel)) || '';
+  const layoutName = layoutRel ?? 'the root layout';
+  if (/mobile-kit['"]/.test(layout)) add('ok', `${layoutName} imports the kit config.`);
+  else add('warn', `${layoutName} does not import './mobile-kit' — the screens will throw 'not configured'.`);
+  if (layout.includes('MobileKitProvider')) add('ok', `${layoutName} mounts <MobileKitProvider>.`);
+  else add('warn', `${layoutName} does not mount <MobileKitProvider> (no OTA-on-open, APK check or device reporting).`);
+  const routes = configuredRoutes(root);
+  for (const [key, flagName] of [['settings', '--settings-route'], ['devices', '--devices-route']]) {
+    const file = routeFileFor(root, routes[key]);
+    const taken = findCollisions(root, routes[key]);
+    if (taken.length) {
+      add('fail', `${routes[key]} is also served by ${taken.map((t) => t.file).join(', ')}: the kit's ${key} page is hidden or hides it — fix: re-run init with ${flagName} /kit-${key}, or rename that file.`);
+    } else if (!existsSync(join(root, file))) add('warn', `${file} missing (nothing serves ${routes[key]}).`);
+    else if (!isKitFile(root, file)) add('fail', `${file} does not re-export the kit's screen (export { ${key === 'devices' ? 'DevicesRoute' : 'SettingsRoute'} as default } from '${PKG}').`);
+    else add('ok', `${file} present (${routes[key]}).`);
   }
   if (existsSync(join(root, '.github/workflows/release.yml'))) add('ok', 'release workflow present.');
   else add('warn', '.github/workflows/release.yml missing.');
 
   for (const [label, target] of [['production', site], ['development', devSite]]) {
     if (!target) continue;
-    const base = String(target).replace(/\/+$/, '');
-    const name = expo.name ?? '';
-    try {
-      const res = await fetchImpl(`${base}/api/method/upande_mobile.api.ota.manifest?app=${encodeURIComponent(name)}`, {
-        signal: AbortSignal.timeout(10000),
-        headers: { 'expo-runtime-version': String(expo.runtimeVersion ?? ''), 'expo-platform': 'android', 'expo-protocol-version': '1' },
-      });
-      const proto = res.headers.get('expo-protocol-version');
-      if ((res.status === 200 || res.status === 204) && proto === '1') add('ok', `${label} site OTA endpoint answers ${res.status} with the protocol header.`);
-      else add('fail', `${label} site OTA endpoint answered ${res.status}${proto ? '' : ' without expo-protocol-version'} — is the upande_mobile app installed there?`);
-    } catch (e) {
-      add(label === 'development' ? 'warn' : 'fail', `could not reach the ${label} site ${base}: ${e.message}`);
-    }
+    const r = await probeSite(label, target, expo, fetchImpl);
+    add(r.level, r.msg);
   }
   return out;
 }

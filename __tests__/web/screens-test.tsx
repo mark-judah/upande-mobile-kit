@@ -24,7 +24,10 @@ jest.mock('expo-constants', () => ({
   default: { expoConfig: { version: '1.2.3', runtimeVersion: '101.2' }, nativeAppVersion: '1.2.0', nativeBuildVersion: '12' },
 }));
 jest.mock('expo-file-system/legacy', () => ({ documentDirectory: 'file:///f/', getInfoAsync: jest.fn() }));
-jest.mock('expo', () => ({ requireOptionalNativeModule: () => null }));
+// Which native modules this "build" has: none by default; a test can flip them all on.
+const nativeFlags = { all: false };
+jest.mock('expo', () => ({ requireOptionalNativeModule: () => (nativeFlags.all ? {} : null) }));
+jest.mock('@react-native-async-storage/async-storage', () => ({ getItem: jest.fn(), setItem: jest.fn(), removeItem: jest.fn() }), { virtual: true });
 
 import { SettingsScreen } from '../../src/screens/SettingsScreen';
 import { DevicesScreen } from '../../src/screens/DevicesScreen';
@@ -33,6 +36,7 @@ import { MobileKitProvider } from '../../src/MobileKitProvider';
 beforeEach(() => {
   setup();
   auth.isSystemManager = true;
+  nativeFlags.all = false;
 });
 
 describe('SettingsScreen (server render)', () => {
@@ -86,6 +90,64 @@ describe('crash report row', () => {
     expect(renderToString(<SettingsScreen />)).toContain('Send test error');
     setup({ monitor: { showTestActions: false } });
     expect(renderToString(<SettingsScreen />)).not.toContain('Send test error');
+  });
+});
+
+describe('what this build lacks (item: say what needs a native rebuild)', () => {
+  it('lists each missing optional module honestly, with the fix', () => {
+    const html = renderToString(<SettingsScreen />);
+    expect(html).toContain('Not available in this build');
+    expect(html).toContain('Battery info unavailable: rebuild required');
+    expect(html).toContain('expo-battery');
+    expect(html).toContain('Device model and memory unavailable: rebuild required');
+    expect(html).toContain('Biometric unavailable: rebuild required');
+    expect(html).toContain('new native build');
+  });
+  it('is quiet when every module is present', () => {
+    nativeFlags.all = true;
+    expect(renderToString(<SettingsScreen />)).not.toContain('Not available in this build');
+  });
+});
+
+describe('biometric ownership', () => {
+  it('the kit owns the lock by default and shows its switch', () => {
+    expect(renderToString(<SettingsScreen />)).toContain('Biometric unlock');
+  });
+  it("biometric: 'host' hides the kit's switch and stops listing biometric as missing", () => {
+    setup({ biometric: 'host' });
+    const html = renderToString(<SettingsScreen />);
+    expect(html).not.toContain('Biometric unlock');
+    expect(html).not.toContain('>Security<');
+    expect(html).not.toContain('Biometric unavailable');
+  });
+});
+
+describe('unwired useAuth / api / storage (dev notice)', () => {
+  let warn: jest.SpyInstance;
+  beforeEach(() => {
+    warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+  });
+  afterEach(() => warn.mockRestore());
+
+  it('shows nothing when the host wired everything', () => {
+    expect(renderToString(<SettingsScreen />)).not.toContain('Dev notice');
+  });
+  it('lists the stand-ins in use, in development only', () => {
+    setup({ useAuth: undefined, api: undefined, storage: undefined, site: 'https://s.example.com' });
+    const html = renderToString(<SettingsScreen />);
+    expect(html).toContain('Dev notice');
+    expect(html).toContain('useAuth not configured');
+    expect(html).toContain('device register and sign-out are not connected to your session');
+    expect(html).toContain('api not configured');
+    expect(html).toContain('storage not configured');
+    const g = globalThis as { __DEV__?: boolean };
+    const was = g.__DEV__;
+    g.__DEV__ = false;
+    try {
+      expect(renderToString(<SettingsScreen />)).not.toContain('Dev notice');
+    } finally {
+      g.__DEV__ = was;
+    }
   });
 });
 

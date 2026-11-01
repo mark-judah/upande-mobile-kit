@@ -2,7 +2,9 @@ import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { Alert, Pressable, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { router } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import { getConfig, type KitTheme } from '../config';
+import { CONFIG_GAP_MESSAGES, getConfig, getConfigGaps, type KitTheme } from '../config';
+import { missingModules } from '../modules';
+import { registerKitScreen } from '../route-guard';
 import * as Biometric from '../biometric';
 import { ApkUpdateSection } from '../updates/ApkUpdateSection';
 import { useApkUpdate } from '../updates/UpdateProvider';
@@ -33,6 +35,12 @@ export function SettingsScreen({
   const s = useMemo(() => styles(cfg.theme), [cfg.theme]);
 
   const name = (auth.fullName ?? '').trim();
+  // The route guard learns the kit's page is what renders here (dev collision warning).
+  useEffect(() => registerKitScreen('settings'), []);
+  // `biometric: 'host'`: the app owns the lock; the kit shows no switch and never prompts.
+  const hostOwnsLock = cfg.biometric === 'host';
+  const [missing] = useState(() => missingModules(hostOwnsLock ? ['expo-local-authentication'] : []));
+  const gaps = __DEV__ ? getConfigGaps() : [];
   const [moduleReady] = useState(() => Biometric.isModuleAvailable());
   const [hardwareReady, setHardwareReady] = useState(false);
   const [siteApps, setSiteApps] = useState<{ label: string; version: string }[] | null>(null);
@@ -44,9 +52,9 @@ export function SettingsScreen({
   const latest = newestRelease && compareVersions(newestRelease, APP_VERSION) > 0 ? newestRelease : APP_VERSION;
 
   useEffect(() => {
-    Biometric.isAvailable().then(setHardwareReady);
+    if (!hostOwnsLock) Biometric.isAvailable().then(setHardwareReady);
     getServerVersions().then(setSiteApps);
-  }, []);
+  }, [hostOwnsLock]);
 
   // Crash reports: the person's own switch. Hidden when the app turned monitoring off or hid the row.
   const monitorCfg = cfg.monitor ?? {};
@@ -144,21 +152,33 @@ export function SettingsScreen({
         {profileExtra}
       </Card>
 
-      <Card title="Security">
-        <View style={s.row}>
-          <View style={{ flex: 1 }}>
-            <Text style={s.rowLabel}>Biometric unlock</Text>
-            <Text style={s.rowHint}>
-              {!moduleReady
-                ? 'Install latest build to enable'
-                : !hardwareReady
-                  ? 'Enroll fingerprint/face in device settings'
-                  : 'Skip the password with fingerprint or face'}
+      {gaps.length ? (
+        <Card title="Dev notice">
+          {gaps.map((g) => (
+            <Text key={g} style={s.rowHint}>
+              {CONFIG_GAP_MESSAGES[g]}
             </Text>
+          ))}
+        </Card>
+      ) : null}
+
+      {hostOwnsLock ? null : (
+        <Card title="Security">
+          <View style={s.row}>
+            <View style={{ flex: 1 }}>
+              <Text style={s.rowLabel}>Biometric unlock</Text>
+              <Text style={s.rowHint}>
+                {!moduleReady
+                  ? 'Install latest build to enable'
+                  : !hardwareReady
+                    ? 'Enroll fingerprint/face in device settings'
+                    : 'Skip the password with fingerprint or face'}
+              </Text>
+            </View>
+            <Toggle value={auth.biometricEnabled} onChange={onToggleBiometric} styles={s} />
           </View>
-          <Toggle value={auth.biometricEnabled} onChange={onToggleBiometric} styles={s} />
-        </View>
-      </Card>
+        </Card>
+      )}
 
       {showMonitorRow ? (
         <Card title="Diagnostics">
@@ -194,6 +214,20 @@ export function SettingsScreen({
         <View style={{ height: spacing.md }} />
         <ApkUpdateSection />
       </Card>
+
+      {missing.length ? (
+        <Card title="Not available in this build">
+          {missing.map((m) => (
+            <View key={m.pkg} style={s.missingRow}>
+              <Text style={s.rowLabel}>{`${m.disables}: rebuild required`}</Text>
+              <Text style={s.rowHint}>{m.pkg}</Text>
+            </View>
+          ))}
+          <Text style={[s.rowHint, { marginTop: spacing.sm }]}>
+            An update delivered over the air cannot add native modules. Install the packages above and make a new native build (APK or dev client).
+          </Text>
+        </Card>
+      ) : null}
 
       {extraSections}
 
@@ -273,6 +307,7 @@ const styles = (t: KitTheme) =>
     userEmail: { fontFamily: t.fontRegular || undefined, fontSize: fontSize.sm, color: t.textSecondary, marginTop: 2 },
     userMeta: { fontFamily: t.fontBold || undefined, fontSize: fontSize.xs, color: t.text, marginTop: 2 },
     row: { flexDirection: 'row', alignItems: 'center', gap: spacing.md },
+    missingRow: { paddingVertical: 4 },
     infoRow: {
       flexDirection: 'row',
       alignItems: 'center',

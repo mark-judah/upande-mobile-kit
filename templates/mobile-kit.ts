@@ -2,18 +2,18 @@
  * Describes this app to @upande/mobile-kit. Imported once, first thing, by
  * app/_layout.tsx. Written by `npx upande-mobile-kit init`.
  *
- * With only these three values the kit uses `fetch` against the site, its own
- * storage and a local biometric switch. If the app already has a Frappe client,
- * storage and sign-in, pass them in (commented below) so the Devices screen,
- * the install register and Sign out use the real session.
+ * `useAuth`, `api` and `storage` should be the app's OWN (init wires them when it
+ * can find them): on the kit's stand-ins the Settings page looks fine, but
+ * sign-out, the biometric switch and the device register are not connected to
+ * the real session.
  */
-import { configureMobileKit } from '@upande/mobile-kit';
+import { configureMobileKit } from '@upande/mobile-kit';__ADAPTER_IMPORTS__
 
 configureMobileKit({
   appName: '__APP_NAME__', // the "Mobile App" record on the server
   githubRepo: '__GITHUB_REPO__', // owner/repo that publishes the GitHub Releases (APKs)
   site: __SITE_VALUE__,
-__SITE_NOTE__  // apk: { autoDownload: 'wifi' }, // 'wifi' (default) | 'always' | 'never'
+__SITE_NOTE____ROUTES____BIOMETRIC__  // apk: { autoDownload: 'wifi' }, // 'wifi' (default) | 'always' | 'never'
   //
   // Crash & API monitoring is ON by default. The person can turn it off in Settings. Defaults shown:
   // monitor: {
@@ -29,10 +29,4 @@ __SITE_NOTE__  // apk: { autoDownload: 'wifi' }, // 'wifi' (default) | 'always' 
   //   showToggle: true,         // the "Send crash reports" row in Settings
   // },
   //
-  // Use the app's own session instead of the built-in stand-ins:
-  // api,        // (req) => Promise<response body>; sends the signed-in user's session
-  // storage,    // { get, set, remove }
-  // useAuth: () => ({ isSystemManager, user, instanceUrl, biometricEnabled,
-  //                   setBiometricEnabled, logout, forgetDevice, fullName, email }),
-  // theme: { primary: '#...' },
-});
+__HOST_BLOCK__});

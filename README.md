@@ -1,6 +1,6 @@
 # @upande/mobile-kit
 
-> Distributed from GitHub, not npm: no npm account needed. Install with `npm install github:mark-judah/upande-mobile-kit#v0.3.1` (pin a release tag).
+> Distributed from GitHub, not npm: no npm account needed. Install with `npm install github:mark-judah/upande-mobile-kit#v0.4.0` (pin a release tag).
 
 A drop-in **Settings page for Expo apps**, with the update plumbing behind it:
 
@@ -17,7 +17,7 @@ The server side is a small Frappe app (`upande_mobile`): it keeps the device reg
 
 ```bash
 # 1. add it to your Expo app (from GitHub; pin a release tag)
-npm install github:mark-judah/upande-mobile-kit#v0.3.1
+npm install github:mark-judah/upande-mobile-kit#v0.4.0
 
 # 2. run the wizard: it asks a few questions, then does the rest
 npx upande-mobile-kit init
@@ -39,13 +39,14 @@ Which bench site?
   1) localhost
 Choose 1-1 [1]:
 Install the native modules (expo install) now? [Y/n]:
+File exporting your auth store hook, e.g. src/store/auth.ts (blank = skip): src/store/auth.ts   ← only when it could not find it
 
 This will: write the pages, config and release workflow; wrap the root layout in <MobileKitProvider>;
 run expo install; install the backend on /home/you/frappe-bench (site localhost); run doctor …
 Apply? [Y/n]:
 ```
 
-After **Apply** it writes `app/settings.tsx`, `app/devices.tsx`, `src/mobile-kit.ts` and the release workflow, edits `app.json`, wraps your root layout in `<MobileKitProvider>` (the original is kept as `app/_layout.tsx.bak`), runs `npx expo install` for the native modules (with your package manager's flag), installs and registers the backend on your local bench, runs `doctor`, and prints the commands for the production server's bench.
+After **Apply** it writes `app/settings.tsx`, `app/devices.tsx`, `src/mobile-kit.ts` and the release workflow, edits `app.json`, wraps your root layout in `<MobileKitProvider>` (a small edit: see [Reviewing what init changes](#reviewing-what-init-changes)), wires your app's own sign-in, API client and storage into the config when it can find them, runs `npx expo install` for the native modules (with your package manager's flag), installs and registers the backend on your local bench, runs `doctor`, and prints the commands for the production server's bench.
 
 **Your answers are remembered** in `upande-mobile-kit.json` at the app root (site URLs, repo, bench folder and site name; no secrets). Run `init` again and every question already has its answer: Enter, Enter, Enter. The file holds a path on your machine, so add it to `.gitignore` if the repo is shared.
 
@@ -71,18 +72,20 @@ export default function RootLayout() {
 }
 ```
 
-Open `/settings` in the app. That's the whole page.
+Open `/settings` in the app (or the path `init` printed: see [Route collisions](#route-collisions)). `init` ends with the URL to open, the file that renders it, and an offer to add a "Settings" entry to your Drawer or Tabs so people can find it. Then run `npx upande-mobile-kit verify` to check the whole setup.
+
+**New native build needed.** `init` adds native packages (`expo-device`, `expo-battery`, `expo-localization`, `expo-file-system`, …) and a plugin entry, and changes `expo.updates.url` / `runtimeVersion`. **An OTA update does not deliver any of that**: the app must be rebuilt (`npx expo prebuild && npx expo run:android`, or push to your release branch and let the workflow build the APK). `init` finishes with a block that lists exactly which packages and `app.json` changes need the new build. Until it is installed the kit degrades instead of crashing (no battery or device model on crash reports, APKs open in the browser, …) and `verify` says which module is missing.
 
 What `init` does:
 
 | It | How |
 |---|---|
-| adds the pages | writes `app/settings.tsx` and `app/devices.tsx` (one-line re-exports) |
+| adds the pages | writes `app/settings.tsx` and `app/devices.tsx` (one-line re-exports), or other paths if those are taken |
 | points the app at your backend | writes `src/mobile-kit.ts`, imports it in `app/_layout.tsx`, sets `expo.updates.url` (production site only: OTA is off in dev builds) to `https://your.site/api/method/upande_mobile.api.ota.manifest?app=<name>`, `expo.extra.otaBaseUrl`, `runtimeVersion` and the plugin entry in `app.json` |
 | installs the backend | with a bench (wizard, or `--bench`): `bench get-app`, `bench --site <site> install-app upande_mobile`, then registers your app. Without `--bench` it prints exactly those commands |
 | gives you OTA + APK releases | writes a 15-line `.github/workflows/release.yml` that calls this package's reusable workflow |
 
-It never overwrites an existing file unless you pass `--force`. Options: `--dev-site`, `--bench-site`, `--backend-repo`, `--kit-repo`, `--name`, `--repo`, `--ota-base-url`, `--apk-name`, `--branch`.
+It never overwrites an existing file unless you pass `--force`, and `--force` never overrides a route collision. Options: `--dev-site`, `--bench-site`, `--backend-repo`, `--kit-repo`, `--name`, `--repo`, `--ota-base-url`, `--apk-name`, `--branch`, `--settings-route`, `--devices-route`, `--biometric host|kit`, `--no-adapters`, `--no-backup`.
 
 The wizard installs these native modules for you; to do it by hand:
 
@@ -93,6 +96,76 @@ npx expo install expo-updates expo-constants expo-file-system expo-intent-launch
 ```
 
 `expo-intent-launcher`, `expo-local-authentication`, `expo-network`, `expo-device`, `expo-battery`, `expo-localization` and AsyncStorage are optional: without them the kit degrades (APKs open in the browser, no biometric switch, downloads never start on an unknown network, settings are kept in memory, crash reports lose the device model, battery and locale).
+
+## Route collisions
+
+The kit's Settings and Devices pages are files under `app/` (`app/settings.tsx`, `app/devices.tsx`). expo-router **route groups such as `(tabs)` are transparent**: `app/(tabs)/settings.tsx` also serves `/settings`, so an app that already has a settings tab would silently hide (or be hidden by) the kit's page. `init`, `doctor` and `verify` scan `app/**` (and `src/app/**`) for any file that serves the same URL: a page in any group, `settings/index.tsx`, or a `settings/` folder with a layout. `[dynamic]` routes, `+not-found`, `+api` routes and the kit's own files are not collisions.
+
+On a collision `init` **stops before writing anything**:
+
+- the wizard offers another path (default `/kit-settings` and `/kit-devices`; it validates and collision-checks what you type), or stops so you can resolve it yourself;
+- with flags or `--yes` it fails with the conflicting files and the flag to pass:
+
+```bash
+npx upande-mobile-kit init --yes --site https://your.site --settings-route /kit-settings --devices-route /kit-devices
+```
+
+A non-default path is written to `src/mobile-kit.ts` as `settingsRoute` / `devicesRoute`, so the kit's own links keep working. You can also keep your own page and re-export the kit's screen from it: `export { SettingsRoute as default } from '@upande/mobile-kit';`.
+
+## Wiring your app
+
+Without `useAuth`, `api` and `storage` the kit runs on stand-ins: the Settings page looks fine, but **sign-out, the biometric switch and the device register are not connected to your session**. So `init` wires them as part of setup, and says what it wired and what is still a stand-in.
+
+It looks for:
+
+| It finds | And generates |
+|---|---|
+| a zustand-style `useAuthStore` (or a `useAuth` hook returning `roles` / `isSystemManager`) | `useAuth`: maps `roles` (`isSystemManager` = has "System Manager"), `fullName`, `email`, `instanceUrl`, `biometricEnabled` / `setBiometricEnabled`, `logout`, `forgetDevice` from the fields the store actually has |
+| a module exporting `api` (in a file named like client / api / http) | `api: hostApi` (it must resolve to the response **body**) |
+| a module exporting `storage` with `get` / `set` / `remove` | `storage: hostStorage` |
+
+When it is not confident the wizard asks (the file and the exported hook name, or blank to skip). `--yes` never guesses: it skips and prints the stand-in warning. A store with neither `roles` nor `isSystemManager` is not wired (the kit could not tell who may open Devices). The generated adapter is plain TypeScript in `src/mobile-kit.ts` that you can edit. `init` leaves an existing `src/mobile-kit.ts` alone (use `--force` to regenerate it); `verify` tells you what is still on a stand-in.
+
+## Who owns the biometric lock
+
+If your app already locks itself (it uses `expo-local-authentication` or has its own lock screen), two locks would fight. `init` detects that, writes `biometric: 'host'` into `src/mobile-kit.ts`, and states in its summary which one owns the lock. With `biometric: 'host'` **your app owns the lock**: the kit adds no lock of its own and hides its biometric switch. With the default `biometric: 'kit'` the kit owns it (Settings has the switch and the kit's `Biometric.*` helpers do the prompt). `--biometric host|kit` forces either. `verify` warns when both exist.
+
+## Reviewing what init changes
+
+`init` is built to be reviewed in a normal diff:
+
+- **The root layout edit is minimal.** It adds the import and wraps what the layout returns in `<MobileKitProvider>`; where the JSX already sits on its own lines, no existing line is re-indented or reformatted (one line before and one after). A layout it does not recognise is left alone, and the exact edit is printed.
+- **Backups live outside `app/`**, in `.upande-mobile-kit/backup/<timestamp>/` (a `.bak` next to a layout would itself become a route). Every existing file `init` changes is copied there first: `app.json`, `package.json`, the layout, and a navigator it edits. Add `.upande-mobile-kit/` to `.gitignore` and delete it once you have reviewed the diff. `--no-backup` writes none.
+- **The summary lists everything before it writes anything**: every file to create or edit, and the dependencies that will be **added** or may have their **versions changed** (`expo install` can bump `expo-constants` and friends). After the install it prints the actual diff (`+ added`, `~ old -> new`).
+
+## Verify your setup
+
+```bash
+npx upande-mobile-kit verify [--site https://your.site] [--dev-site http://localhost:8000]
+```
+
+One line per check, `✓` fine, `!` look at it, `✗` broken, and every `!` / `✗` carries a one-line fix. Exit code 1 when anything is `✗`. It checks:
+
+- `app.json`: the plugin entry, `expo.updates.url`, `runtimeVersion`;
+- routes: both pages exist and re-export the kit, **no collisions**, and something in your app **links** to the Settings page;
+- `<MobileKitProvider>` in the root layout, and `src/mobile-kit.ts` imported **first**;
+- config completeness: `useAuth` / `api` / `storage` are your app's own (or listed as stand-ins), and who owns the biometric lock;
+- native modules are in `package.json` and installed, with the rebuild note;
+- the sites answer on the OTA endpoint (a dev site that is down is only a warning), and a phone can actually reach them: **`http://` needs Android cleartext traffic and an iOS ATS exception**. The kit plugin enables cleartext for the hosts you list under `expo.extra.mobileKit.sites` (`init` writes that), or use `expo-build-properties` (`android.usesCleartextTraffic`) and `ios.infoPlist.NSAppTransportSecurity`. Changing these needs a new native build.
+
+`doctor` stays as the quick check (it reports route collisions too); `verify` is the superset.
+
+### Plain HTTP sites (cleartext)
+
+Android blocks plain `http://` traffic and iOS App Transport Security does too. When any site in `expo.extra.mobileKit.sites`, the `updates.url` or the plugin props is `http://`, the config plugin handles it at prebuild: Android gets `usesCleartextTraffic="true"`, and iOS gets an exception scoped to that host (IPs and localhost get `NSAllowsLocalNetworking`). It never sets the global "allow all HTTP" flag, and it prints what it enabled. An `http://` **production** site gets a loud warning, because release builds would then send traffic in clear text. Opt out with `["@upande/mobile-kit", { "cleartext": false }]` in `app.json`. This is native config, so it needs a new native build.
+
+### What needs a native rebuild
+
+An OTA update only replaces JavaScript. Native modules (`expo-device`, `expo-battery`, `expo-localization`, `expo-file-system`, `expo-network`, `expo-intent-launcher`, `expo-local-authentication`, AsyncStorage) and plugin entries need a **new native build**; `init` ends by listing what it added. Where a build lacks an optional module, Settings shows a "Not available in this build" card (for example "Battery info unavailable: rebuild required") instead of hiding the gap, and crash reports carry `missing_modules` so the dashboard shows it too.
+
+### `.local` hostnames do not work on phones
+
+A dev site addressed by an mDNS name (one ending in `.local`) resolves on your computer but **not from a phone or the Android emulator** (phones do not resolve mDNS names). Use your computer's LAN IP instead, `http://<your-lan-ip>:8000`, and make bench serve it: set bench's default site (`bench use <site>`, which sets `default_site`) so a request to the bare IP reaches your site, and start the bench listening on all interfaces. `verify` warns about any `.local` host. The IP is plain `http://`, so the cleartext settings above apply.
 
 ## How updates reach a phone
 
@@ -133,6 +206,7 @@ Everything else is optional. If the app already has a Frappe client, storage and
 | `environment` | `'development'` or `'production'`: pin the choice instead of deriving it from `__DEV__` |
 | `api`, `authHeaders` | your own Frappe client (resolves to the response body), or headers for the built-in one |
 | `storage` | `{ get, set, remove }`; default AsyncStorage, else memory |
+| `biometric` | `'kit'` (default: the kit owns the lock and shows the switch) or `'host'` (your app already locks itself: the kit adds no lock and hides its switch) |
 | `useAuth` | `() => ({ isSystemManager, user, instanceUrl, biometricEnabled, setBiometricEnabled, logout?, forgetDevice?, fullName?, email? })` |
 | `apk.autoDownload` | `'wifi'` (default), `'always'`, `'never'`; the person's Settings choice wins |
 | `theme`, `ui` | colours / fonts, or swap `Screen`, `Card`, `Button`, `useToast`, `showDialog`, `useOnline` for your design system |
@@ -144,6 +218,8 @@ Everything else is optional. If the app already has a Frappe client, storage and
 Add your own rows without forking: `<SettingsScreen extraSections={…} profileExtra={…} />`.
 
 Other exports: `useUpdatePrompt(active)` (an "Update available" dialog before downloading, for apps that prefer asking first), `Biometric.*` for your lock screen, `reportInstall`, `fetchInstalls`, `restartForInstance` / `consumeInstanceSwitched`, `checkForApk`, `downloadApk`, `launchInstaller`, `useApkUpdate`.
+
+Development helpers: when `useAuth`, `api` or `storage` are not passed, the kit runs on stand-ins (the device register and sign-out are then **not** connected to your session). Dev builds log this once and show a "Dev notice" card on Settings; `getConfigGaps()` returns the list. In dev the kit also warns once if its route is open but another screen renders there (a route collision). Other options: `biometric: 'host'` (your app owns the lock; the kit hides its switch and never prompts), `settingsRoute` / `devicesRoute` (where the pages are mounted; default `/settings`, `/devices`), and `foregroundReportMinMs` (at most one foreground device report per this many ms, default 30000, on top of the 15-minute throttle).
 
 ## Crash & API monitoring
 
@@ -192,6 +268,7 @@ Settings shows the "Send crash reports" row by default (`monitor.showToggle: fal
 ```bash
 npx upande-mobile-kit version [--apply] [--json] [--notes] [--bump minor|major] [--set 1.0.0]
 npx upande-mobile-kit publish-ota [--out dir]
+npx upande-mobile-kit verify [--site https://your.site] [--dev-site http://localhost:8000]
 npx upande-mobile-kit doctor [--site https://your.site] [--dev-site http://localhost:8000]
 ```
 
@@ -213,7 +290,7 @@ git tag v0.1.0 && git push origin v0.1.0
 git tag -f v0 && git push -f origin v0      # callers' `uses: <owner>/upande-mobile-kit/…@v0` resolves to this
 ```
 
-Users then run `npm install github:mark-judah/upande-mobile-kit#v0.3.1`. To update, they change the tag. Bump `version` in `package.json` before each tag so it matches.
+Users then run `npm install github:mark-judah/upande-mobile-kit#v0.4.0`. To update, they change the tag. Bump `version` in `package.json` before each tag so it matches.
 
 Notes: a GitHub install has no registry listing, download counts or integrity record beyond the git commit, so pin a tag (or a commit hash), never a branch. `npx upande-mobile-kit …` works after the install because the command is linked into `node_modules/.bin`.
 

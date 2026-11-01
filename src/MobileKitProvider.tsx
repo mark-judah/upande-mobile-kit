@@ -1,8 +1,10 @@
-import { useEffect, useRef, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, type ReactNode } from 'react';
 import { AppState } from 'react-native';
 import { getConfig } from './config';
 import { UpdateProvider } from './updates/UpdateProvider';
 import { reportInstall } from './devices/install-register';
+import { createForegroundGate, DEFAULT_FOREGROUND_REPORT_MIN_MS } from './devices/foreground-gate';
+import { watchKitRoute } from './route-guard';
 import { usePathname } from 'expo-router';
 import { addBreadcrumb, MonitorErrorBoundary, setMonitorContext, startMonitor } from './monitor';
 
@@ -21,10 +23,21 @@ export function MobileKitProvider({ children }: { children: ReactNode }) {
   return (
     <UpdateProvider>
       <DeviceReporter />
+      {__DEV__ ? <RouteWatcher /> : null}
       {monitoring ? <MonitorBridge /> : null}
       {monitoring && monitor?.errorBoundary ? <MonitorErrorBoundary>{children}</MonitorErrorBoundary> : children}
     </UpdateProvider>
   );
+}
+
+/** Development only: says so when the kit's Settings / Devices route is rendered by some other screen. */
+function RouteWatcher() {
+  const pathname = usePathname();
+  useEffect(() => {
+    const cfg = getConfig();
+    return watchKitRoute(pathname, { settings: cfg.settingsRoute ?? '/settings', devices: cfg.devicesRoute ?? '/devices' });
+  }, [pathname]);
+  return null;
 }
 
 /** Starts crash / API monitoring, tells it who is signed in, and records screen changes as breadcrumbs. */
@@ -56,6 +69,8 @@ function MonitorBridge() {
 function DeviceReporter() {
   const { user, instanceUrl } = getConfig().useAuth();
   const seenUser = useRef<string | null | undefined>(undefined);
+  const foregroundMinMs = getConfig().foregroundReportMinMs ?? DEFAULT_FOREGROUND_REPORT_MIN_MS;
+  const allowForeground = useMemo(() => createForegroundGate(foregroundMinMs), [foregroundMinMs]);
 
   // First signed-in value is a launch; a later change of account is a sign-in.
   useEffect(() => {
@@ -72,10 +87,10 @@ function DeviceReporter() {
   useEffect(() => {
     if (!user) return;
     const sub = AppState.addEventListener('change', (state) => {
-      if (state === 'active') reportInstall({ reason: 'foreground', user, instanceUrl });
+      if (state === 'active' && allowForeground()) reportInstall({ reason: 'foreground', user, instanceUrl });
     });
     return () => sub.remove();
-  }, [user, instanceUrl]);
+  }, [user, instanceUrl, allowForeground]);
 
   return null;
 }

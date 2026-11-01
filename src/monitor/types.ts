@@ -38,6 +38,8 @@ export type DeviceFacts = {
   build_type?: 'embedded' | 'ota' | 'dev';
   install_id?: string;
   device_key?: string;
+  /** Optional native modules this build was compiled without (a rebuild is needed to get them). */
+  missing_modules?: string[];
 };
 
 export type ApiRecord = {

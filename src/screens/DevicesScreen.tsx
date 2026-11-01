@@ -12,6 +12,7 @@ import {
   type InstallStatus,
 } from '../devices/devices-api';
 import { getInstallId, getRegisteredRowId } from '../devices/install-register';
+import { registerKitScreen } from '../route-guard';
 import { Segmented, spacing, fontSize, ui, useTheme } from '../ui/primitives';
 
 /**
@@ -74,6 +75,7 @@ function matches(r: InstallRow, q: string): boolean {
 /** The Devices page. Anyone but a System Manager is sent back to Settings. */
 export function DevicesScreen() {
   const cfg = getConfig();
+  useEffect(() => registerKitScreen('devices'), []);
   const { isSystemManager } = cfg.useAuth();
   return isSystemManager ? <DevicesRegister /> : <Redirect href={(cfg.settingsRoute ?? '/settings') as never} />;
 }

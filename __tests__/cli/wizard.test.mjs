@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
@@ -102,7 +102,7 @@ test('wizard happy path: asks the few questions, then writes, wraps the layout, 
   withHome(async () => {
     const { root, benchDir } = workspace();
     // production, dev, install backend?, which bench (1st), which site (default), native?, apply?
-    const io = scripted(['https://prod.example.com/', 'http://localhost:8000', true, 0, undefined, true, true]);
+    const io = scripted(['https://prod.example.com/', 'http://localhost:8000', true, 0, undefined, true, '', true]);
     const out = await main([], root, { io, doctor });
 
     assert.deepEqual(io.asked.map((q) => q.split(/[?(:]/)[0].trim()), [
@@ -112,6 +112,7 @@ test('wizard happy path: asks the few questions, then writes, wraps the layout, 
       'Which bench',
       'Which bench site',
       'Install the native modules',
+      'File exporting your auth store hook, e.g. src/store/auth.ts',
       'Apply',
     ]);
     const cfg = readFileSync(join(root, 'src/mobile-kit.ts'), 'utf8');
@@ -121,7 +122,12 @@ test('wizard happy path: asks the few questions, then writes, wraps the layout, 
     const layout = readFileSync(join(root, 'app/_layout.tsx'), 'utf8');
     assert.match(layout, /import \{ MobileKitProvider \} from '@upande\/mobile-kit';/);
     assert.match(layout, /<MobileKitProvider>\s*<Stack \/>\s*<\/MobileKitProvider>/);
-    assert.equal(readFileSync(join(root, 'app/_layout.tsx.bak'), 'utf8'), ROOT_LAYOUT);
+    // the original is kept OUTSIDE app/ (a backup next to a layout would become a route)
+    assert.ok(!existsSync(join(root, 'app/_layout.tsx.bak')));
+    const stamp = readdirSync(join(root, '.upande-mobile-kit/backup'))[0];
+    assert.equal(readFileSync(join(root, '.upande-mobile-kit/backup', stamp, 'app/_layout.tsx'), 'utf8'), ROOT_LAYOUT);
+    assert.ok(existsSync(join(root, '.upande-mobile-kit/backup', stamp, 'app.json')));
+    assert.match(out, /Backups of \d+ changed files are in \.upande-mobile-kit\/backup\//);
 
     const cmds = io.ran.map((r) => r.argv.join(' '));
     assert.ok(cmds.includes(`npx expo install ${NATIVE_MODULES.join(' ')}`), cmds.join('\n'));
@@ -132,7 +138,7 @@ test('wizard happy path: asks the few questions, then writes, wraps the layout, 
     assert.equal(io.ran.find((r) => r.argv[1] === 'expo').cwd, root);
 
     assert.match(out, /Doctor:\n✓ doctor says fine/);
-    assert.match(out, /open \/settings/);
+    assert.match(out, /Open \/settings in the app \(rendered by app\/settings\.tsx\)/);
     assert.deepEqual(loadSaved(root), {
       site: 'https://prod.example.com',
       devSite: 'http://localhost:8000',
@@ -146,7 +152,7 @@ test('wizard happy path: asks the few questions, then writes, wraps the layout, 
 test('running it again is Enter, Enter, Enter: remembered answers are the defaults and nothing is broken', () =>
   withHome(async () => {
     const { root, benchDir } = workspace();
-    await main([], root, { io: scripted(['https://prod.example.com', 'http://localhost:8000', true, 0, undefined, false, true]), doctor });
+    await main([], root, { io: scripted(['https://prod.example.com', 'http://localhost:8000', true, 0, undefined, false, '', true]), doctor });
     const before = readFileSync(join(root, 'src/mobile-kit.ts'), 'utf8');
     const layout = readFileSync(join(root, 'app/_layout.tsx'), 'utf8');
 
@@ -167,7 +173,7 @@ test('running it again is Enter, Enter, Enter: remembered answers are the defaul
 test('an invalid URL is explained and asked again', () =>
   withHome(async () => {
     const { root } = workspace({ bench: false });
-    const io = scripted(['not a url', 'ftp://nope', 'https://prod.example.com', '', false, false, true]);
+    const io = scripted(['not a url', 'ftp://nope', 'https://prod.example.com', '', false, false, '', true]);
     await main([], root, { io, doctor });
     assert.equal(io.asked.filter((q) => q.startsWith('Production site URL')).length, 3);
     assert.ok(io.said.some((t) => /not a URL/.test(t)));
@@ -178,7 +184,7 @@ test('an invalid URL is explained and asked again', () =>
 test('the production site is required; blank is refused and asked again', () =>
   withHome(async () => {
     const { root } = workspace({ bench: false });
-    const io = scripted(['', 'https://prod.example.com', '', false, false, true]);
+    const io = scripted(['', 'https://prod.example.com', '', false, false, '', true]);
     await main([], root, { io, doctor });
     assert.equal(io.asked.filter((q) => q.startsWith('Production site URL')).length, 2);
     assert.ok(io.said.some((t) => /required/.test(t)));
@@ -187,7 +193,7 @@ test('the production site is required; blank is refused and asked again', () =>
 test('declining "Apply?" writes nothing at all', () =>
   withHome(async () => {
     const { root } = workspace();
-    const io = scripted(['https://prod.example.com', '', false, false, false]);
+    const io = scripted(['https://prod.example.com', '', false, false, '', false]);
     const out = await main([], root, { io, doctor });
     assert.equal(out, 'Nothing was changed.\n');
     assert.ok(!existsSync(join(root, 'src/mobile-kit.ts')));
@@ -199,7 +205,7 @@ test('declining "Apply?" writes nothing at all', () =>
 test('a missing GitHub origin is asked for, and validated', () =>
   withHome(async () => {
     const { root } = workspace({ origin: '', bench: false });
-    const io = scripted(['nonsense', 'acme/my-app', 'https://prod.example.com', '', false, false, true]);
+    const io = scripted(['nonsense', 'acme/my-app', 'https://prod.example.com', '', false, false, '', true]);
     await main([], root, { io, doctor });
     assert.ok(io.asked[0].startsWith('GitHub repo'));
     assert.ok(io.said.some((t) => /owner\/repo/.test(t)));
@@ -267,7 +273,7 @@ test('the package manager from the lockfile is passed to expo install', () =>
   withHome(async () => {
     const { root } = workspace({ bench: false });
     writeFileSync(join(root, 'pnpm-lock.yaml'), '');
-    const io = scripted(['https://prod.example.com', '', false, true, true]);
+    const io = scripted(['https://prod.example.com', '', false, true, '', true]);
     await main([], root, { io, doctor });
     const expo = io.ran.find((r) => r.argv[1] === 'expo').argv;
     assert.deepEqual(expo.slice(0, 4), ['npx', 'expo', 'install', '--pnpm']);
@@ -276,7 +282,7 @@ test('the package manager from the lockfile is passed to expo install', () =>
 test('a failed native install is reported with the command, not fatal', () =>
   withHome(async () => {
     const { root } = workspace({ bench: false });
-    const io = scripted(['https://prod.example.com', '', false, true, true]);
+    const io = scripted(['https://prod.example.com', '', false, true, '', true]);
     io.exec = () => {
       throw new Error('network down');
     };
@@ -322,6 +328,7 @@ test('re-running with a new site updates the site line of an existing src/mobile
 test('wrapLayout: the expo-router default', () => {
   const r = wrapLayout(ROOT_LAYOUT);
   assert.equal(r.status, 'wrapped');
+  // `return <Stack />;` has to move onto its own line; everything else is untouched
   assert.equal(
     r.source,
     `import { Stack } from 'expo-router';
@@ -337,6 +344,19 @@ export default function RootLayout() {
 `,
   );
 });
+
+/** The lines the edit added, and whether every other line is exactly as it was. */
+function diffOf(before, after) {
+  const a = before.split('\n');
+  const b = after.split('\n');
+  const added = [];
+  let i = 0;
+  for (const line of b) {
+    if (a[i] === line) i += 1;
+    else added.push(line.trim());
+  }
+  return { added, untouched: i === a.length };
+}
 
 test('wrapLayout: a fragment root in parentheses, hooks and an early return', () => {
   const src = `import '../src/mobile-kit';
@@ -359,7 +379,11 @@ export default function RootLayout() {
 `;
   const r = wrapLayout(src);
   assert.equal(r.status, 'wrapped');
-  assert.match(r.source, /return \(\n    <MobileKitProvider>\n      <>\n/);
+  // minimal edit: no line is re-indented or reformatted; exactly the import and the two tags are new
+  const d = diffOf(src, r.source);
+  assert.equal(d.untouched, true);
+  assert.deepEqual(d.added, ["import { MobileKitProvider } from '@upande/mobile-kit';", '<MobileKitProvider>', '</MobileKitProvider>']);
+  assert.match(r.source, /return \(\n    <MobileKitProvider>\n    <>\n/);
   assert.match(r.source, /<\/>\n    <\/MobileKitProvider>\n  \);\n}/);
   assert.match(r.source, /if \(!loaded\) return null;/);
   assert.match(r.source, /import \{ useFonts \} from 'expo-font';\nimport \{ MobileKitProvider \}/);

@@ -38,7 +38,7 @@ export const FORBIDDEN = [
   [/[\w-]+\.github\.io\/[\w-]+/i, 'a concrete GitHub Pages URL'],
   [/\b(?!dev@upande\.com\b)[\w.+-]+@(?!example\.(?:com|org|net|invalid)\b)[A-Za-z0-9-]+\.[A-Za-z.-]+/, 'email address'],
   [/\b(?!10\.0\.2\.2\b)(?:10|192\.168|172\.(?:1[6-9]|2\d|3[01]))\.\d+\.\d+(?:\.\d+)?\b/, 'private IP address'],
-  [/\.local\b(?![\w.])/, 'local dev host'],
+  [/[\w-]+\.local\b(?![\w.])/, 'local dev host (name.local)'],
   [/\bghp_[A-Za-z0-9]{20,}|\bgithub_pat_[A-Za-z0-9_]{20,}/, 'GitHub token'],
   [/\bAKIA[0-9A-Z]{16}\b/, 'AWS key id'],
   [/-----BEGIN [A-Z ]*PRIVATE KEY-----/, 'private key'],

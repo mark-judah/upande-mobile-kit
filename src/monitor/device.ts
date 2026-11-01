@@ -3,6 +3,8 @@ import { requireOptionalNativeModule } from 'expo';
 import * as Updates from 'expo-updates';
 import { getInstallId } from '../devices/install-register';
 import { androidId } from '../devices/device-key';
+import { missingModuleNames } from '../modules';
+import { getConfig, isConfigured } from '../config';
 import { APP_VERSION, runtimeVersion } from '../version';
 import { LIMITS, type DeviceFacts } from './types';
 
@@ -84,9 +86,17 @@ export function readStaticFacts(): DeviceFacts {
     js_engine: hermes ? 'hermes' : 'jsc',
     build_type: (__DEV__ ? 'dev' : Updates.isEmbeddedLaunch ? 'embedded' : 'ota') as DeviceFacts['build_type'],
     device_key: safe(() => androidId()) ?? undefined,
+    missing_modules: missingFor(),
   });
   staticFacts = built;
   return built;
+}
+
+/** Modules this build lacks, for the report (undefined when none). Biometric is skipped when the host owns the lock. */
+function missingFor(): string[] | undefined {
+  const skip = isConfigured() && getConfig().biometric === 'host' ? ['expo-local-authentication'] : [];
+  const names = safe(() => missingModuleNames(skip)) ?? [];
+  return names.length ? names : undefined;
 }
 
 function safe<T>(f: () => T): T | undefined {
