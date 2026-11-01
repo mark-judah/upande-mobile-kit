@@ -118,6 +118,7 @@ test('init --dev-site writes a development/production pair; the bench goes to th
   assert.match(out, /Backend installed on localhost \(development\)/);
   assert.match(out, /Production \(https:\/\/erp\.example\.com\): run these/);
   assert.match(out, /--site erp\.example\.com install-app upande_mobile/);
+  assert.match(out, /doctor --site https:\/\/erp\.example\.com --dev-site http:\/\/localhost:8000/);
   // --dev-site alone is refused: release builds need a production site
   assert.throws(() => init(['--repo', 'acme/my-app', '--dev-site', 'http://localhost:8000'], app()), /--dev-site needs --site/);
   assert.throws(() => init(['--repo', 'acme/my-app', '--site', 'https://e.example.com', '--dev-site', 'localhost'], app()), /--dev-site must be a URL/);
