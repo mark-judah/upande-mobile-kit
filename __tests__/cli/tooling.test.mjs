@@ -193,7 +193,7 @@ test('the publish gate catches hostnames, personal names and credential shapes',
 
 test('the CLI binary prints help and rejects unknown commands', () => {
   const bin = join(import.meta.dirname, '../../bin/upande-mobile-kit.mjs');
-  assert.match(execFileSync('node', [bin, '--help'], { encoding: 'utf8' }), /init .*wire this Expo app/);
+  assert.match(execFileSync('node', [bin, '--help'], { encoding: 'utf8' }), /init .*set this Expo app up/);
   assert.throws(() => execFileSync('node', [bin, 'nope'], { stdio: 'pipe' }));
   const dir = app();
   assert.match(execFileSync('node', [bin, 'version'], { cwd: dir, encoding: 'utf8' }), /1\.0\.0 -> 1\.0\.1/);

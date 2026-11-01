@@ -4,7 +4,8 @@ import { dirname, join } from 'node:path';
 
 const HELP = `upande-mobile-kit <command>
 
-  init          wire this Expo app to the kit (routes, config stub, release workflow, plugin)
+  init          set this Expo app up: asks a few questions, then does the rest   [--yes] [--no-install]
+                (value flags like --site/--dev-site/--bench run the plain, non-interactive init)
   doctor        check the app is set up correctly   [--site https://your.site] [--dev-site http://localhost:8000]
   version       odometer versioning                 [--apply --json --notes --bump --set --keep-version]
   publish-ota   build the JS-only update into ./ota [--out dir]
@@ -17,7 +18,7 @@ const cli = join(dirname(fileURLToPath(import.meta.url)), '..', 'cli');
 const load = (f) => import(pathToFileURL(join(cli, f)).href);
 
 try {
-  if (cmd === 'init') process.stdout.write((await load('init.mjs')).run(rest));
+  if (cmd === 'init') process.stdout.write(await (await load('wizard.mjs')).main(rest));
   else if (cmd === 'version') process.stdout.write((await load('version.mjs')).run(rest));
   else if (cmd === 'publish-ota') (await load('publish-ota.mjs')).run(rest);
   else if (cmd === 'doctor') {

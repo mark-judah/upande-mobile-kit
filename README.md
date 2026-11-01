@@ -1,6 +1,6 @@
 # @upande/mobile-kit
 
-> Distributed from GitHub, not npm: no npm account needed. Install with `npm install github:mark-judah/upande-mobile-kit#v0.2.1` (pin a release tag).
+> Distributed from GitHub, not npm: no npm account needed. Install with `npm install github:mark-judah/upande-mobile-kit#v0.3.0` (pin a release tag).
 
 A drop-in **Settings page for Expo apps**, with the update plumbing behind it:
 
@@ -17,19 +17,47 @@ The server side is a small Frappe app (`upande_mobile`): it keeps the device reg
 
 ```bash
 # 1. add it to your Expo app (from GitHub; pin a release tag)
-npm install github:mark-judah/upande-mobile-kit#v0.2.1
+npm install github:mark-judah/upande-mobile-kit#v0.3.0
 
-# 2. wire everything: Settings + Devices pages, config, release workflow, backend.
-#    --site is production; --dev-site is your local bench (used by dev builds)
-npx upande-mobile-kit init --site https://your.site --dev-site http://localhost:8000 --bench /path/to/frappe-bench
-
-# 3. wrap your app in the provider (the one edit init cannot guess), then:
-npx upande-mobile-kit doctor --site https://your.site --dev-site http://localhost:8000
+# 2. run the wizard: it asks a few questions, then does the rest
+npx upande-mobile-kit init
 ```
 
-**Local and production.** Dev builds (`__DEV__`: Metro, dev clients) talk to the `--dev-site`; release builds and OTA talk to `--site`. `--dev-site` is optional; without it every build uses `--site`. With `--bench`, the backend is installed on the **development** site (a bench on your machine is the local one) and `init` prints the exact commands to run on the production server's bench: it never touches production. `localhost` works in the iOS simulator; the Android emulator needs `http://10.0.2.2:<port>`, and a real phone needs your computer's LAN address (and a bench listening on it).
+That is all. The wizard detects your app name, GitHub repo, package manager and any Frappe bench on your machine, so it only asks for what it cannot know:
 
-For step 3, in `app/_layout.tsx`:
+```
+Setting up My App (acme/my-app).
+
+Production site URL (release builds use this): https://your.site
+Local/dev site URL (dev builds use this; blank = same as production, try http://localhost:8000): http://localhost:8000
+Install the Frappe backend (upande_mobile) on a bench on this machine now? [Y/n]:
+Which bench?
+  1) /home/you/frappe-bench
+  2) Another folder…
+Choose 1-2 [1]:
+Which bench site?
+  1) localhost
+Choose 1-1 [1]:
+Install the native modules (expo install) now? [Y/n]:
+
+This will: write the pages, config and release workflow; wrap the root layout in <MobileKitProvider>;
+run expo install; install the backend on /home/you/frappe-bench (site localhost); run doctor …
+Apply? [Y/n]:
+```
+
+After **Apply** it writes `app/settings.tsx`, `app/devices.tsx`, `src/mobile-kit.ts` and the release workflow, edits `app.json`, wraps your root layout in `<MobileKitProvider>` (the original is kept as `app/_layout.tsx.bak`), runs `npx expo install` for the native modules (with your package manager's flag), installs and registers the backend on your local bench, runs `doctor`, and prints the commands for the production server's bench.
+
+**Your answers are remembered** in `upande-mobile-kit.json` at the app root (site URLs, repo, bench folder and site name; no secrets). Run `init` again and every question already has its answer: Enter, Enter, Enter. The file holds a path on your machine, so add it to `.gitignore` if the repo is shared.
+
+**Flags are for CI and scripts.** `init --yes` asks nothing (remembered answers, detected values, and flags win), and `--no-install` never runs a command (it prints them). Any value flag on its own (`--site`, `--dev-site`, `--bench`, `--bench-site`, `--name`, `--repo`, …) runs the plain, non-interactive init, as in earlier versions. Without a terminal and without `--yes`, `init` stops at once and says which flags to pass:
+
+```bash
+npx upande-mobile-kit init --yes --site https://your.site --dev-site http://localhost:8000 --bench /path/to/frappe-bench --bench-site my.site
+```
+
+**Local and production.** Dev builds (`__DEV__`: Metro, dev clients) talk to the dev site; release builds and OTA talk to the production site. The dev site is optional; without it every build uses the production site. A bench on your machine is the local one, so the backend is installed on the **development** site; `init` prints the exact commands to run on the production server's bench and never touches production. `localhost` works in the iOS simulator; the Android emulator needs `http://10.0.2.2:<port>`, and a real phone needs your computer's LAN address (and a bench listening on it).
+
+If the wizard does not recognise your root layout it leaves the file alone and prints the edit to make. By hand, in `app/_layout.tsx`:
 
 ```tsx
 import { MobileKitProvider } from '@upande/mobile-kit';
@@ -51,12 +79,12 @@ What `init` does:
 |---|---|
 | adds the pages | writes `app/settings.tsx` and `app/devices.tsx` (one-line re-exports) |
 | points the app at your backend | writes `src/mobile-kit.ts`, imports it in `app/_layout.tsx`, sets `expo.updates.url` (production site only: OTA is off in dev builds) to `https://your.site/api/method/upande_mobile.api.ota.manifest?app=<name>`, `expo.extra.otaBaseUrl`, `runtimeVersion` and the plugin entry in `app.json` |
-| installs the backend | with `--bench`: `bench get-app`, `bench --site <site> install-app upande_mobile`, then registers your app. Without `--bench` it prints exactly those commands |
+| installs the backend | with a bench (wizard, or `--bench`): `bench get-app`, `bench --site <site> install-app upande_mobile`, then registers your app. Without `--bench` it prints exactly those commands |
 | gives you OTA + APK releases | writes a 15-line `.github/workflows/release.yml` that calls this package's reusable workflow |
 
 It never overwrites an existing file unless you pass `--force`. Options: `--dev-site`, `--bench-site`, `--backend-repo`, `--kit-repo`, `--name`, `--repo`, `--ota-base-url`, `--apk-name`, `--branch`.
 
-Also install the native modules the kit uses (`init` prints the command):
+The wizard installs these native modules for you; to do it by hand:
 
 ```bash
 npx expo install expo-updates expo-constants expo-file-system expo-intent-launcher \
@@ -184,7 +212,7 @@ git tag v0.1.0 && git push origin v0.1.0
 git tag -f v0 && git push -f origin v0      # callers' `uses: <owner>/upande-mobile-kit/…@v0` resolves to this
 ```
 
-Users then run `npm install github:mark-judah/upande-mobile-kit#v0.2.1`. To update, they change the tag. Bump `version` in `package.json` before each tag so it matches.
+Users then run `npm install github:mark-judah/upande-mobile-kit#v0.3.0`. To update, they change the tag. Bump `version` in `package.json` before each tag so it matches.
 
 Notes: a GitHub install has no registry listing, download counts or integrity record beyond the git commit, so pin a tag (or a commit hash), never a branch. `npx upande-mobile-kit …` works after the install because the command is linked into `node_modules/.bin`.
 

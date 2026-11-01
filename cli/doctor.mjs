@@ -90,6 +90,7 @@ export async function check(root = process.cwd(), { site, devSite, fetchImpl = g
     const name = expo.name ?? '';
     try {
       const res = await fetchImpl(`${base}/api/method/upande_mobile.api.ota.manifest?app=${encodeURIComponent(name)}`, {
+        signal: AbortSignal.timeout(10000),
         headers: { 'expo-runtime-version': String(expo.runtimeVersion ?? ''), 'expo-platform': 'android', 'expo-protocol-version': '1' },
       });
       const proto = res.headers.get('expo-protocol-version');

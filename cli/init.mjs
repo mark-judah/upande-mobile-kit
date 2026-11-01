@@ -87,7 +87,7 @@ const siteNote = (devSite) =>
 const quote = (a) => (/^[\w@%+=:,./-]+$/.test(a) ? a : `'${a.replace(/'/g, `'\\''`)}'`);
 export const commandLine = (argv) => argv.map(quote).join(' ');
 
-export function run(argv, root = process.cwd(), { exec } = {}) {
+export function run(argv, root = process.cwd(), { exec, lastSteps = true } = {}) {
   const flag = (n) => {
     const i = argv.indexOf(`--${n}`);
     return i === -1 ? undefined : argv[i + 1];
@@ -237,6 +237,7 @@ export function run(argv, root = process.cwd(), { exec } = {}) {
     }
   }
 
+  if (!lastSteps) return log.join('\n') + '\n';
   log.push(
     '',
     'Last steps:',
