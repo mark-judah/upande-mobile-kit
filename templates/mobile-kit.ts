@@ -12,8 +12,8 @@ import { configureMobileKit } from '@upande/mobile-kit';
 configureMobileKit({
   appName: '__APP_NAME__', // the "Mobile App" record on the server
   githubRepo: '__GITHUB_REPO__', // owner/repo that publishes the GitHub Releases (APKs)
-  site: '__SITE__', // the Frappe site running the upande_mobile app
-  // apk: { autoDownload: 'wifi' }, // 'wifi' (default) | 'always' | 'never'
+  site: __SITE_VALUE__,
+__SITE_NOTE__  // apk: { autoDownload: 'wifi' }, // 'wifi' (default) | 'always' | 'never'
   //
   // Crash & API monitoring is ON by default. The person can turn it off in Settings. Defaults shown:
   // monitor: {

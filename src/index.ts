@@ -5,6 +5,7 @@ export {
   DEFAULT_THEME,
   DEFAULT_ENDPOINTS,
   defaultInstanceKey,
+  resolveSite,
 } from './config';
 export type {
   MobileKitConfig,
@@ -14,6 +15,8 @@ export type {
   KitTheme,
   KitUi,
   KitEndpoints,
+  KitSites,
+  KitEnvironment,
   KitDialogButton,
   KitDialogIcon,
 } from './config';

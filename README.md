@@ -1,6 +1,6 @@
 # @upande/mobile-kit
 
-> Distributed from GitHub, not npm: no npm account needed. Install with `npm install github:mark-judah/upande-mobile-kit#v0.1.0` (pin a release tag).
+> Distributed from GitHub, not npm: no npm account needed. Install with `npm install github:mark-judah/upande-mobile-kit#v0.2.0` (pin a release tag).
 
 A drop-in **Settings page for Expo apps**, with the update plumbing behind it:
 
@@ -17,14 +17,17 @@ The server side is a small Frappe app (`upande_mobile`): it keeps the device reg
 
 ```bash
 # 1. add it to your Expo app (from GitHub; pin a release tag)
-npm install github:mark-judah/upande-mobile-kit#v0.1.0
+npm install github:mark-judah/upande-mobile-kit#v0.2.0
 
-# 2. wire everything: Settings + Devices pages, config, release workflow, backend
-npx upande-mobile-kit init --site https://your.site --bench /path/to/frappe-bench
+# 2. wire everything: Settings + Devices pages, config, release workflow, backend.
+#    --site is production; --dev-site is your local bench (used by dev builds)
+npx upande-mobile-kit init --site https://your.site --dev-site http://localhost:8000 --bench /path/to/frappe-bench
 
 # 3. wrap your app in the provider (the one edit init cannot guess), then:
-npx upande-mobile-kit doctor --site https://your.site
+npx upande-mobile-kit doctor --site https://your.site --dev-site http://localhost:8000
 ```
+
+**Local and production.** Dev builds (`__DEV__`: Metro, dev clients) talk to the `--dev-site`; release builds and OTA talk to `--site`. `--dev-site` is optional; without it every build uses `--site`. With `--bench`, the backend is installed on the **development** site (a bench on your machine is the local one) and `init` prints the exact commands to run on the production server's bench: it never touches production. `localhost` works in the iOS simulator; the Android emulator needs `http://10.0.2.2:<port>`, and a real phone needs your computer's LAN address (and a bench listening on it).
 
 For step 3, in `app/_layout.tsx`:
 
@@ -47,11 +50,11 @@ What `init` does:
 | It | How |
 |---|---|
 | adds the pages | writes `app/settings.tsx` and `app/devices.tsx` (one-line re-exports) |
-| points the app at your backend | writes `src/mobile-kit.ts`, imports it in `app/_layout.tsx`, sets `expo.updates.url` to `https://your.site/api/method/upande_mobile.api.ota.manifest?app=<name>`, `expo.extra.otaBaseUrl`, `runtimeVersion` and the plugin entry in `app.json` |
+| points the app at your backend | writes `src/mobile-kit.ts`, imports it in `app/_layout.tsx`, sets `expo.updates.url` (production site only: OTA is off in dev builds) to `https://your.site/api/method/upande_mobile.api.ota.manifest?app=<name>`, `expo.extra.otaBaseUrl`, `runtimeVersion` and the plugin entry in `app.json` |
 | installs the backend | with `--bench`: `bench get-app`, `bench --site <site> install-app upande_mobile`, then registers your app. Without `--bench` it prints exactly those commands |
 | gives you OTA + APK releases | writes a 15-line `.github/workflows/release.yml` that calls this package's reusable workflow |
 
-It never overwrites an existing file unless you pass `--force`. Options: `--bench-site`, `--backend-repo`, `--kit-repo`, `--name`, `--repo`, `--ota-base-url`, `--apk-name`, `--branch`.
+It never overwrites an existing file unless you pass `--force`. Options: `--dev-site`, `--bench-site`, `--backend-repo`, `--kit-repo`, `--name`, `--repo`, `--ota-base-url`, `--apk-name`, `--branch`.
 
 Also install the native modules the kit uses (`init` prints the command):
 
@@ -87,6 +90,8 @@ configureMobileKit({
   appName: 'My App',            // the "Mobile App" record on the server
   githubRepo: 'owner/my-app',   // repo that publishes the GitHub Releases
   site: 'https://your.site',    // the Frappe site running upande_mobile
+  // or one per environment (dev builds use `development`, release builds `production`):
+  // site: { production: 'https://your.site', development: 'http://localhost:8000' },
 });
 ```
 
@@ -95,7 +100,8 @@ Everything else is optional. If the app already has a Frappe client, storage and
 | Option | Purpose |
 |---|---|
 | `appName`, `githubRepo` | required |
-| `site` | base URL for the built-in `fetch` client |
+| `site` | base URL for the built-in `fetch` client: a string, or `{ production, development }` (dev builds use `development`, falling back to `production`) |
+| `environment` | `'development'` or `'production'`: pin the choice instead of deriving it from `__DEV__` |
 | `api`, `authHeaders` | your own Frappe client (resolves to the response body), or headers for the built-in one |
 | `storage` | `{ get, set, remove }`; default AsyncStorage, else memory |
 | `useAuth` | `() => ({ isSystemManager, user, instanceUrl, biometricEnabled, setBiometricEnabled, logout?, forgetDevice?, fullName?, email? })` |
@@ -157,7 +163,7 @@ Settings shows the "Send crash reports" row by default (`monitor.showToggle: fal
 ```bash
 npx upande-mobile-kit version [--apply] [--json] [--notes] [--bump minor|major] [--set 1.0.0]
 npx upande-mobile-kit publish-ota [--out dir]
-npx upande-mobile-kit doctor [--site https://your.site]
+npx upande-mobile-kit doctor [--site https://your.site] [--dev-site http://localhost:8000]
 ```
 
 - **Odometer versions**: each merge is one step (`1.0.99 → 1.1.0`, `1.49.99 → 2.0.0`); `versionCode` and `runtimeVersion` are derived. A new Expo SDK always becomes a new runtime.
@@ -178,7 +184,7 @@ git tag v0.1.0 && git push origin v0.1.0
 git tag -f v0 && git push -f origin v0      # callers' `uses: <owner>/upande-mobile-kit/…@v0` resolves to this
 ```
 
-Users then run `npm install github:mark-judah/upande-mobile-kit#v0.1.0`. To update, they change the tag. Bump `version` in `package.json` before each tag so it matches.
+Users then run `npm install github:mark-judah/upande-mobile-kit#v0.2.0`. To update, they change the tag. Bump `version` in `package.json` before each tag so it matches.
 
 Notes: a GitHub install has no registry listing, download counts or integrity record beyond the git commit, so pin a tag (or a commit hash), never a branch. `npx upande-mobile-kit …` works after the install because the command is linked into `node_modules/.bin`.
 

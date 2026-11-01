@@ -103,6 +103,44 @@ test('doctor flags an unconfigured app and passes a configured one', async () =>
   assert.deepEqual(good.filter((r) => r.level !== 'ok'), []);
 });
 
+test('init --dev-site writes a development/production pair; the bench goes to the dev site and production commands are printed', () => {
+  const dir = app();
+  const bench = mkdtempSync(join(tmpdir(), 'kit-bench-'));
+  const ran = [];
+  const out = init(['--repo', 'acme/my-app', '--site', 'https://erp.example.com', '--dev-site', 'http://localhost:8000/', '--bench', bench, '--backend-repo', 'https://github.com/acme/upande_mobile.git'], dir, { exec: (argv) => ran.push(argv.join(' ')) });
+  const cfg = readFileSync(join(dir, 'src/mobile-kit.ts'), 'utf8');
+  assert.match(cfg, /site: \{ production: 'https:\/\/erp\.example\.com', development: 'http:\/\/localhost:8000' \}/);
+  assert.doesNotMatch(cfg, /__(SITE|APP|GITHUB|APK|KIT)\w*__/);
+  // production OTA feed in app.json; the bench installs on the DEV host, never production
+  assert.match(JSON.parse(readFileSync(join(dir, 'app.json'), 'utf8')).expo.updates.url, /^https:\/\/erp\.example\.com\//);
+  assert.ok(ran.some((r) => /--site localhost install-app upande_mobile/.test(r)), ran.join('\n'));
+  assert.ok(!ran.some((r) => /erp\.example\.com/.test(r)));
+  assert.match(out, /Backend installed on localhost \(development\)/);
+  assert.match(out, /Production \(https:\/\/erp\.example\.com\): run these/);
+  assert.match(out, /--site erp\.example\.com install-app upande_mobile/);
+  // --dev-site alone is refused: release builds need a production site
+  assert.throws(() => init(['--repo', 'acme/my-app', '--dev-site', 'http://localhost:8000'], app()), /--dev-site needs --site/);
+  assert.throws(() => init(['--repo', 'acme/my-app', '--site', 'https://e.example.com', '--dev-site', 'localhost'], app()), /--dev-site must be a URL/);
+});
+
+test('doctor probes the development site too, and an unreachable dev site is only a warning', async () => {
+  const dir = app({ runtimeVersion: '1.0' });
+  const seen = [];
+  const res = await check(dir, {
+    site: 'https://prod.example.com',
+    devSite: 'http://localhost:8000',
+    fetchImpl: async (url) => {
+      seen.push(url);
+      if (url.startsWith('http://localhost')) throw new Error('ECONNREFUSED');
+      return { status: 204, headers: { get: (k) => (k === 'expo-protocol-version' ? '1' : null) } };
+    },
+  });
+  assert.equal(seen.length, 2);
+  assert.ok(res.some((r) => r.level === 'ok' && /production site OTA/.test(r.msg)));
+  assert.ok(res.some((r) => r.level === 'warn' && /development site/.test(r.msg)));
+  assert.ok(!res.some((r) => r.level === 'fail' && /site/.test(r.msg)));
+});
+
 test('doctor --site checks the manifest endpoint answers with the protocol header', async () => {
   const dir = app({ runtimeVersion: '1.0' });
   const seen = [];
@@ -113,7 +151,7 @@ test('doctor --site checks the manifest endpoint answers with the protocol heade
       return { status: 204, headers: { get: (k) => (k === 'expo-protocol-version' ? '1' : null) } };
     },
   });
-  assert.ok(ok.some((r) => r.level === 'ok' && /site OTA endpoint/.test(r.msg)));
+  assert.ok(ok.some((r) => r.level === 'ok' && /production site OTA endpoint/.test(r.msg)));
   assert.equal(seen[0][0], 'https://site.example.com/api/method/upande_mobile.api.ota.manifest?app=My%20App');
   assert.equal(seen[0][1], '1.0');
   const bad = await check(dir, { site: 'https://site.example.com', fetchImpl: async () => ({ status: 200, headers: { get: () => null } }) });

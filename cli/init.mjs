@@ -2,9 +2,11 @@
  * `upande-mobile-kit init` — wire an Expo app to the kit. Run from the app
  * root. Never overwrites an existing file unless --force.
  *
- *   --site https://your.site   the Frappe site that runs the upande_mobile app
- *   --bench /path/to/bench   also install the backend there (get-app, install-app, register this app)
- *   --bench-site my.site     the bench site name (default: the host of --site)
+ *   --site https://your.site   the PRODUCTION Frappe site that runs the upande_mobile app
+ *   --dev-site http://localhost:8000  the LOCAL/development site (dev builds use it, release builds use --site)
+ *   --bench /path/to/bench   also install the backend there (get-app, install-app, register this app);
+ *                            goes to --dev-site when given, otherwise --site
+ *   --bench-site my.site     the bench site name (default: the host of the site the bench installs to)
  *   --backend-repo URL       git URL of the backend app (default: the constant in cli/constants.mjs)
  *   --kit-repo owner/repo    where the reusable release workflow lives (default: constants.mjs)
  *   --name "My App"          Mobile App record name (default: app.json expo.name)
@@ -71,6 +73,17 @@ export function backendPlan({ benchSite, backendRepo, appName, githubRepo, otaBa
   ];
 }
 
+/** The `site:` value written into src/mobile-kit.ts. */
+export const siteValue = (site, devSite) =>
+  devSite
+    ? `{ production: '${site}', development: '${devSite}' }`
+    : `'${site || 'https://your.site'}'`;
+
+const siteNote = (devSite) =>
+  devSite
+    ? "  // Dev builds (Metro / dev client, __DEV__) talk to `development`; release builds to `production`.\n  // Pin one with `environment: 'production'`. localhost works in the iOS simulator; the Android emulator needs http://10.0.2.2:<port>, a real phone your computer's LAN address.\n"
+    : '  // Add a local one with  site: { production: \'https://your.site\', development: \'http://localhost:8000\' }\n';
+
 const quote = (a) => (/^[\w@%+=:,./-]+$/.test(a) ? a : `'${a.replace(/'/g, `'\\''`)}'`);
 export const commandLine = (argv) => argv.map(quote).join(' ');
 
@@ -92,6 +105,9 @@ export function run(argv, root = process.cwd(), { exec } = {}) {
   if (!repo) throw new Error('Pass --repo owner/repo: no GitHub origin remote found.');
   const site = (flag('site') ?? '').replace(/\/+$/, '');
   if (site && !/^https?:\/\/[^/\s]+/.test(site)) throw new Error('--site must be a URL like https://your.site');
+  const devSite = (flag('dev-site') ?? '').replace(/\/+$/, '');
+  if (devSite && !/^https?:\/\/[^/\s]+/.test(devSite)) throw new Error('--dev-site must be a URL like http://localhost:8000');
+  if (devSite && !site) throw new Error('--dev-site needs --site too: that is the production site release builds use.');
   const apkName = flag('apk-name') ?? snake(name);
   const branch = flag('branch') ?? (sh(root, 'rev-parse', '--abbrev-ref', 'HEAD') || 'main');
   const kitRepo = flag('kit-repo') ?? KIT_REPO;
@@ -113,7 +129,8 @@ export function run(argv, root = process.cwd(), { exec } = {}) {
       .replaceAll('__APP_NAME__', name)
       .replaceAll('__GITHUB_REPO__', repo)
       .replaceAll('__APK_NAME__', apkName)
-      .replaceAll('__SITE__', site || 'https://your.site')
+      .replaceAll('__SITE_VALUE__', siteValue(site, devSite))
+      .replaceAll('__SITE_NOTE__', siteNote(devSite))
       .replaceAll('__KIT_REPO__', kitRepo)
       .replaceAll('__WORKFLOW_REF__', WORKFLOW_REF);
 
@@ -177,8 +194,10 @@ export function run(argv, root = process.cwd(), { exec } = {}) {
   // The backend: install it when a bench is given, otherwise say exactly what to run.
   const bench = flag('bench');
   const backendRepo = flag('backend-repo') ?? BACKEND_REPO_URL;
+  // A bench on this machine is the local/dev one; production is installed on its own server.
+  const benchTarget = devSite || site;
   let benchSite = flag('bench-site');
-  if (!benchSite && site) benchSite = new URL(site).hostname;
+  if (!benchSite && benchTarget) benchSite = new URL(benchTarget).hostname;
   log.push('');
   if (!site) {
     log.push('Backend: pass --site (and --bench) to install the Frappe app; nothing was installed.');
@@ -205,10 +224,16 @@ export function run(argv, root = process.cwd(), { exec } = {}) {
           log.push(`note   ${step.note}: ${String(e.message).split('\n')[0]}`);
         }
       }
-      log.push(`Backend installed on ${benchSite}. Restart the bench (\`bench restart\`) so the new app is served.`);
+      log.push(`Backend installed on ${benchSite}${devSite ? ' (development)' : ''}. Restart the bench (\`bench restart\`) so the new app is served.`);
     } else {
       log.push(`Backend: run these in your bench folder (or re-run init with --bench <path>):`);
       for (const step of plan) log.push(`  ${commandLine(step.argv)}`);
+    }
+    if (devSite) {
+      // Production lives on its own server: never touched from here, only told what to run.
+      const prod = backendPlan({ benchSite: new URL(site).hostname, backendRepo, appName: name, githubRepo: repo, otaBaseUrl });
+      log.push('', `Production (${site}): run these in the bench on that server, then restart it:`);
+      for (const step of prod) log.push(`  ${commandLine(step.argv)}`);
     }
   }
 

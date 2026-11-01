@@ -5,6 +5,7 @@ import {
   getConfig,
   isConfigured,
   resetMobileKit,
+  resolveSite,
 } from '../src/config';
 import { setup } from './helpers';
 
@@ -52,5 +53,31 @@ describe('configureMobileKit', () => {
   it('setup helper configures the kit', () => {
     setup();
     expect(getConfig().appName).toBe('Test App');
+  });
+});
+
+describe('resolveSite', () => {
+  const both = { production: 'https://prod.example.com/', development: 'http://192.168.1.10:8000' };
+  test('a plain string is used as is (trailing slash dropped) in every environment', () => {
+    expect(resolveSite('https://a.example.com/', undefined, true).site).toBe('https://a.example.com');
+    expect(resolveSite('https://a.example.com', undefined, false).site).toBe('https://a.example.com');
+  });
+  test('dev builds use development, release builds production', () => {
+    expect(resolveSite(both, undefined, true)).toEqual({ site: 'http://192.168.1.10:8000', environment: 'development' });
+    expect(resolveSite(both, undefined, false)).toEqual({ site: 'https://prod.example.com', environment: 'production' });
+  });
+  test('an explicit environment wins over __DEV__', () => {
+    expect(resolveSite(both, 'production', true).site).toBe('https://prod.example.com');
+    expect(resolveSite(both, 'development', false).site).toBe('http://192.168.1.10:8000');
+  });
+  test('no development site falls back to production; no site at all is undefined', () => {
+    expect(resolveSite({ production: 'https://p.example.com' }, undefined, true).site).toBe('https://p.example.com');
+    expect(resolveSite(undefined, undefined, true).site).toBeUndefined();
+  });
+  test('configureMobileKit stores the resolved site and environment', () => {
+    configureMobileKit({ ...base, site: both, environment: 'development' });
+    expect(getConfig().site).toBe('http://192.168.1.10:8000');
+    expect(getConfig().environment).toBe('development');
+    resetMobileKit();
   });
 });

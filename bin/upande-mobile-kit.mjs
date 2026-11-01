@@ -5,7 +5,7 @@ import { dirname, join } from 'node:path';
 const HELP = `upande-mobile-kit <command>
 
   init          wire this Expo app to the kit (routes, config stub, release workflow, plugin)
-  doctor        check the app is set up correctly   [--site https://your.site]
+  doctor        check the app is set up correctly   [--site https://your.site] [--dev-site http://localhost:8000]
   version       odometer versioning                 [--apply --json --notes --bump --set --keep-version]
   publish-ota   build the JS-only update into ./ota [--out dir]
 

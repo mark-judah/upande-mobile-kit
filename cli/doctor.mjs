@@ -2,7 +2,8 @@
  * `upande-mobile-kit doctor` — check an Expo app is set up for the kit.
  * Run from the app root. Exit code 1 when anything fails (warnings don't fail).
  *
- *   --site https://your.site   also probe the site's OTA manifest endpoint
+ *   --site https://your.site   also probe the production site's OTA manifest endpoint
+ *   --dev-site http://localhost:8000  and the development site's (unreachable is only a warning)
  */
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -11,7 +12,7 @@ import { parseVersion } from './version-lib.mjs';
 const PKG = '@upande/mobile-kit';
 
 /** @returns {Promise<{level:'ok'|'warn'|'fail', msg:string}[]>} */
-export async function check(root = process.cwd(), { site, fetchImpl = globalThis.fetch } = {}) {
+export async function check(root = process.cwd(), { site, devSite, fetchImpl = globalThis.fetch } = {}) {
   const out = [];
   const add = (level, msg) => out.push({ level, msg });
   const read = (rel) => {
@@ -83,26 +84,30 @@ export async function check(root = process.cwd(), { site, fetchImpl = globalThis
   if (existsSync(join(root, '.github/workflows/release.yml'))) add('ok', 'release workflow present.');
   else add('warn', '.github/workflows/release.yml missing.');
 
-  if (site) {
-    const base = String(site).replace(/\/+$/, '');
+  for (const [label, target] of [['production', site], ['development', devSite]]) {
+    if (!target) continue;
+    const base = String(target).replace(/\/+$/, '');
     const name = expo.name ?? '';
     try {
       const res = await fetchImpl(`${base}/api/method/upande_mobile.api.ota.manifest?app=${encodeURIComponent(name)}`, {
         headers: { 'expo-runtime-version': String(expo.runtimeVersion ?? ''), 'expo-platform': 'android', 'expo-protocol-version': '1' },
       });
       const proto = res.headers.get('expo-protocol-version');
-      if ((res.status === 200 || res.status === 204) && proto === '1') add('ok', `site OTA endpoint answers ${res.status} with the protocol header.`);
-      else add('fail', `site OTA endpoint answered ${res.status}${proto ? '' : ' without expo-protocol-version'} — is the upande_mobile app installed?`);
+      if ((res.status === 200 || res.status === 204) && proto === '1') add('ok', `${label} site OTA endpoint answers ${res.status} with the protocol header.`);
+      else add('fail', `${label} site OTA endpoint answered ${res.status}${proto ? '' : ' without expo-protocol-version'} — is the upande_mobile app installed there?`);
     } catch (e) {
-      add('fail', `could not reach ${base}: ${e.message}`);
+      add(label === 'development' ? 'warn' : 'fail', `could not reach the ${label} site ${base}: ${e.message}`);
     }
   }
   return out;
 }
 
 export async function run(argv, root = process.cwd()) {
-  const i = argv.indexOf('--site');
-  const results = await check(root, { site: i === -1 ? undefined : argv[i + 1] });
+  const val = (f) => {
+    const i = argv.indexOf(f);
+    return i === -1 ? undefined : argv[i + 1];
+  };
+  const results = await check(root, { site: val('--site'), devSite: val('--dev-site') });
   const mark = { ok: '✓', warn: '!', fail: '✗' };
   const text = results.map((r) => `${mark[r.level]} ${r.msg}`).join('\n') + '\n';
   return { text, ok: !results.some((r) => r.level === 'fail') };

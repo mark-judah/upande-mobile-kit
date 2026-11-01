@@ -136,13 +136,36 @@ export type KitApkOptions = {
   autoDownload?: ApkAutoDownload;
 };
 
+export type KitEnvironment = 'development' | 'production';
+export type KitSites = { production: string; development?: string };
+
+/** The site URL for the environment: explicit `environment`, else `__DEV__`. Trailing slashes dropped. */
+export function resolveSite(
+  site: string | KitSites | undefined,
+  environment?: KitEnvironment,
+  isDev: boolean = typeof __DEV__ !== 'undefined' && __DEV__,
+): { site: string | undefined; environment: KitEnvironment } {
+  const env: KitEnvironment = environment ?? (isDev ? 'development' : 'production');
+  const clean = (u?: string) => (u ? u.replace(/\/+$/, '') : undefined);
+  if (!site || typeof site === 'string') return { site: clean(site), environment: env };
+  const picked = env === 'development' ? site.development || site.production : site.production;
+  return { site: clean(picked), environment: env };
+}
+
 export type MobileKitConfig = {
   /** The Mobile App record's name on the server, e.g. "My App". Also the title of the app. */
   appName: string;
   /** `owner/repo` that publishes this app's GitHub Releases (APKs). */
   githubRepo: string;
-  /** The Frappe site's base URL, e.g. "https://your.site". Used by the built-in `api`. */
-  site?: string;
+  /**
+   * The Frappe site's base URL, e.g. "https://your.site", used by the built-in `api`.
+   * Or one per environment: `{ production: 'https://your.site', development: 'http://localhost:8000' }`.
+   * Development builds (`__DEV__`: Metro, dev clients) use `development`, release builds `production`;
+   * a missing `development` falls back to `production`. Force one with `environment`.
+   */
+  site?: string | KitSites;
+  /** Pin the environment instead of deriving it from `__DEV__` (e.g. a staging APK that should use `production`). */
+  environment?: KitEnvironment;
   /**
    * The host's Frappe client. Omit it and the kit uses `fetch` against `site`
    * (with `authHeaders` when given).
@@ -178,7 +201,10 @@ export type MobileKitConfig = {
   otaOpenWindowMs?: number;
 };
 
-export type ResolvedConfig = Omit<MobileKitConfig, 'theme' | 'endpoints' | 'api' | 'storage' | 'useAuth'> & {
+export type ResolvedConfig = Omit<MobileKitConfig, 'theme' | 'endpoints' | 'api' | 'storage' | 'useAuth' | 'site' | 'environment'> & {
+  /** The site in use, after choosing the environment. */
+  site?: string;
+  environment: KitEnvironment;
   theme: KitTheme;
   endpoints: KitEndpoints;
   api: KitApi;
@@ -194,11 +220,14 @@ export function configureMobileKit(config: MobileKitConfig): void {
     throw new Error('configureMobileKit: githubRepo must look like "owner/repo".');
   }
   const storage = config.storage ?? defaultStorage();
+  const { site, environment } = resolveSite(config.site, config.environment);
   current = {
     ...config,
+    site,
+    environment,
     storage,
-    api: config.api ?? createFetchApi(config.site, config.authHeaders),
-    useAuth: config.useAuth ?? createLocalAuth(config.site),
+    api: config.api ?? createFetchApi(site, config.authHeaders),
+    useAuth: config.useAuth ?? createLocalAuth(site),
     theme: { ...DEFAULT_THEME, ...config.theme },
     endpoints: { ...DEFAULT_ENDPOINTS, ...config.endpoints },
   };
