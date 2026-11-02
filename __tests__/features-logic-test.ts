@@ -164,3 +164,20 @@ describe('chat and support helpers', () => {
     expect(lines.join(' ')).not.toMatch(/password|token/i);
   });
 });
+
+describe('versions shown in Settings', () => {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const { serverAppsToShow, KIT_SERVER_APP } = require('../src/version');
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const { KIT_VERSION } = require('../src/kit-version');
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const pkg = require('../package.json');
+  it('the kit version is the package version', () => {
+    expect(KIT_VERSION).toBe(pkg.version);
+  });
+  it('always lists the kit’s backend, after the app’s own list, once', () => {
+    expect(serverAppsToShow(undefined).map((a: [string, string]) => a[0])).toEqual(['frappe', 'erpnext', KIT_SERVER_APP]);
+    expect(serverAppsToShow([['frappe', 'Frappe']]).map((a: [string, string]) => a[0])).toEqual(['frappe', KIT_SERVER_APP]);
+    expect(serverAppsToShow([[KIT_SERVER_APP, 'Mine']])).toEqual([[KIT_SERVER_APP, 'Mine']]);
+  });
+});

@@ -10,6 +10,7 @@ import { ApkUpdateSection } from '../updates/ApkUpdateSection';
 import { useApkUpdate } from '../updates/UpdateProvider';
 import { compareVersions } from '../updates/releases';
 import { APP_VERSION, codeLine, getServerVersions } from '../version';
+import { KIT_VERSION } from '../kit-version';
 import { fontSize, spacing, ui } from '../ui/primitives';
 import { VaultRow } from '../vault/VaultRow';
 import { SupportCard } from '../support/SupportCard';
@@ -223,8 +224,9 @@ export function SettingsScreen({
         ) : siteApps.length === 0 ? (
           <InfoRow label="Apps" value="Not available" styles={s} />
         ) : (
-          siteApps.map((a) => <InfoRow key={a.label} label={a.label} value={`v${a.version}`} styles={s} />)
+          siteApps.map((a) => <InfoRow key={a.label} label={a.label} value={/^\d/.test(a.version) ? `v${a.version}` : a.version} styles={s} />)
         )}
+        <InfoRow label="Upande Mobile Kit" value={`v${KIT_VERSION}`} styles={s} />
         <InfoRow label="Installed" value={`v${APP_VERSION}`} styles={s} />
         <InfoRow label="Latest" value={`v${latest}`} styles={s} />
         <InfoRow label="Code" value={codeLine()} styles={s} />

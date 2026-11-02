@@ -52,6 +52,7 @@ export type { ApkCheck, ApkRelease, UpdateErrorKind } from './updates/releases';
 export { canInstallInApp, downloadApk, findDownloadedApk, launchInstaller, InstallError } from './updates/install-apk';
 
 export * as Biometric from './biometric';
+export { KIT_VERSION } from './kit-version';
 export { APP_VERSION, INSTALLED_APK_VERSION, INSTALLED_APK_BUILD, getServerVersions, runtimeVersion } from './version';
 
 export { reportInstall, getInstallId, getRegisteredRowId, deviceFacts, shouldSkipReport } from './devices/install-register';

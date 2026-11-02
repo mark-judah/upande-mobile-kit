@@ -48,6 +48,8 @@ export type DeviceFacts = {
   app_state?: string;
   color_scheme?: string;
   js_engine?: string;
+  /** Version of @upande/mobile-kit this build contains. */
+  kit_version?: string;
   build_type?: 'embedded' | 'ota' | 'dev';
   install_id?: string;
   device_key?: string;

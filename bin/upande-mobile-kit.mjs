@@ -11,9 +11,10 @@ const HELP = `upande-mobile-kit <command>
   verify        self-test: routes, provider, wiring, native modules, sites; a fix per failure   [--site ...] [--dev-site ...]
   doctor        check the app is set up correctly   [--site https://your.site] [--dev-site http://localhost:8000]
   version       odometer versioning                 [--apply --json --notes --bump --set --keep-version]
+  release       tag a release of the KIT itself (run in the kit repo)   [patch|minor|major|x.y.z] [--push --dry-run --list --skip-checks]
   publish-ota   build the JS-only update into ./ota [--out dir]
 
-Run from the app root (the folder with app.json).
+Run from the app root (the folder with app.json); "release" runs in the kit repository.
 `;
 
 const [cmd, ...rest] = process.argv.slice(2);
@@ -23,6 +24,7 @@ const load = (f) => import(pathToFileURL(join(cli, f)).href);
 try {
   if (cmd === 'init') process.stdout.write(await (await load('wizard.mjs')).main(rest));
   else if (cmd === 'version') process.stdout.write((await load('version.mjs')).run(rest));
+  else if (cmd === 'release') process.stdout.write((await load('release.mjs')).run(rest));
   else if (cmd === 'publish-ota') (await load('publish-ota.mjs')).run(rest);
   else if (cmd === 'fix') {
     const { text, ok } = (await load('fix.mjs')).run(rest);

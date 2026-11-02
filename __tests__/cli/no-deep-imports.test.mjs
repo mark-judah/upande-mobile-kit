@@ -21,7 +21,7 @@ test('src never requires react-native internals (Libraries/...)', () => {
 test('every relative import in src resolves to a file inside the package files whitelist', () => {
   const root = join(import.meta.dirname, '../..');
   const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'));
-  const shipped = (rel) => pkg.files.some((f) => !f.startsWith('!') && (rel === f || rel.startsWith(f + '/')));
+  const shipped = (rel) => rel === 'package.json' || pkg.files.some((f) => !f.startsWith('!') && (rel === f || rel.startsWith(f + '/')));
   const exts = ['', '.ts', '.tsx', '.js', '.json', '/index.ts', '/index.tsx', '/index.js'];
   const bad = [];
   for (const file of walk(join(root, 'src'))) {

@@ -6,6 +6,7 @@ import { androidId } from '../devices/device-key';
 import { missingModuleNames } from '../modules';
 import { getConfig, isConfigured } from '../config';
 import { APP_VERSION, runtimeVersion } from '../version';
+import { KIT_VERSION } from '../kit-version';
 import { LIMITS, type DeviceFacts } from './types';
 import { apiTimingSummary, getProbeSite, lastLatencyMs, refreshLatency } from './net-stats';
 
@@ -85,6 +86,7 @@ export function readStaticFacts(): DeviceFacts {
     locale,
     timezone,
     js_engine: hermes ? 'hermes' : 'jsc',
+    kit_version: KIT_VERSION,
     build_type: (__DEV__ ? 'dev' : Updates.isEmbeddedLaunch ? 'embedded' : 'ota') as DeviceFacts['build_type'],
     device_key: safe(() => androidId()) ?? undefined,
     missing_modules: missingFor(),

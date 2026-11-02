@@ -211,3 +211,13 @@ describe('help card and fingerprint vault', () => {
     expect(html).not.toContain('Biometric unlock');
   });
 });
+
+describe('kit version row', () => {
+  it('shows the npm package version in App & Server', () => {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { version } = require('../../package.json');
+    const html = renderToString(<SettingsScreen />);
+    expect(html).toContain('Upande Mobile Kit');
+    expect(html).toContain(`v${version}`);
+  });
+});

@@ -356,7 +356,7 @@ From top to bottom, the page shows:
 | Dev notice | Development builds only: which of `useAuth`, `api` and `storage` are still on the kit's stand-ins |
 | Security | The **Biometric unlock** switch (see [Fingerprint unlock](#fingerprint-unlock)). Shown with `biometric: 'host'` too whenever your own `useAuth` is wired: it sets your `biometricEnabled` and your app does the locking |
 | Diagnostics | The **Send crash reports** switch, and a **Send test error** button in development. Hidden with `monitor.showToggle: false` |
-| App & Server | The app name, the site, the versions of the apps on the site (Frappe and ERPNext by default), **Installed** version, **Latest** version, which bundle is running (embedded build, or the OTA bundle id, date and channel), the **Check for updates** button and the **Download updates** choice (see [Updates on the phone](#updates-on-the-phone)) |
+| App & Server | The app name, the site, the versions of the apps on the site (Frappe and ERPNext by default, plus **Upande Mobile Kit (server)**, the `upande_mobile` backend, or "not installed" when the site lacks it), **Upande Mobile Kit**, the version of this npm package the app was built with, **Installed** version, **Latest** version, which bundle is running (embedded build, or the OTA bundle id, date and channel), the **Check for updates** button and the **Download updates** choice (see [Updates on the phone](#updates-on-the-phone)) |
 | Not available in this build | Only when an optional native module is missing, for example "Battery info unavailable: rebuild required" |
 | Your own rows | Anything you pass as `extraSections` or `profileExtra` |
 | Devices | A link to the Devices page. System Managers only |
@@ -665,12 +665,18 @@ npx upande-mobile-kit init --yes --site https://your.site --dev-site http://loca
 
 The kit is installed from this repository, so a release is a git tag:
 
+Commit your changes to `main`, then from the kit checkout:
+
 ```bash
-npm run typecheck && npm test
-npm run check:pack            # fails on stray hostnames, emails or credential-shaped text
-# bump "version" in package.json and commit, then:
-git tag v0.8.0 && git push origin v0.8.0
+npx upande-mobile-kit release --dry-run   # show what would happen
+npx upande-mobile-kit release minor       # patch (default) | minor | major | 1.4.0
+npx upande-mobile-kit release --push      # same, and push the branch and the tag
+npx upande-mobile-kit release --list      # tags that exist
 ```
+
+`release` refuses to run on a dirty tree, off `main` (override with `--allow-branch`), or when the tag already exists. It runs typecheck, tests and `check:pack` (skip with `--skip-checks`), sets `"version"` in `package.json`, commits `chore(release): <version>`, and creates the annotated tag `v<version>`. It never pushes unless you pass `--push`, and never moves or replaces a tag. It prints the line apps use to install that version.
+
+By hand it is the same: run the three checks, bump `"version"`, commit, `git tag v<version>`, `git push origin main v<version>`.
 
 - `check:pack` also reads `KIT_DENY_PATTERNS` (regexes separated by `;`), so names that must never ship do not have to be written into this repo.
 - The package is `"private": true` so it cannot be published to npm by accident. Remove that line and add `publishConfig` to publish there.
