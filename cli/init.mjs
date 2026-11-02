@@ -27,6 +27,7 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { buildAdapters, detectHost, detectHostBiometric, STAND_IN_EFFECT } from './adapters.mjs';
 import { backupNote, createBackup } from './backup.mjs';
+import { ensureGitignore, gitignoreNote } from './gitignore.mjs';
 import { BACKEND_APP, BACKEND_REPO_URL, isPlaceholder, KIT_REPO, NATIVE_MODULES, WORKFLOW_REF } from './constants.mjs';
 import { FIX_COMMAND, METRO_NOTE } from './native-modules.mjs';
 import { installNativeModules } from './native-install.mjs';
@@ -373,6 +374,10 @@ export function run(argv, root = process.cwd(), { exec, lastSteps = true, wiring
       for (const step of prod) log.push(`  ${commandLine(step.argv)}`);
     }
   }
+
+  // Local-only files (remembered answers, backups) never belong in git.
+  const ignored = ensureGitignore(root);
+  if (ignored.added.length) log.push(gitignoreNote(ignored));
 
   // The native modules: every init path installs the missing ones (the wizard does it itself, so it passes lastSteps: false).
   const depsOf = () => ({ ...(JSON.parse(readFileSync(join(root, 'package.json'), 'utf8')).dependencies ?? {}) });

@@ -33,5 +33,5 @@ export function createBackup(root, enabled = true, now = new Date()) {
 /** The line init prints when something was backed up. */
 export const backupNote = (b) =>
   b.files.length
-    ? `Backups of ${b.files.length} changed file${b.files.length === 1 ? '' : 's'} are in ${b.relDir}/ (outside app/). Add .upande-mobile-kit/ to .gitignore, and delete it once you have reviewed the diff.`
+    ? `Backups of ${b.files.length} changed file${b.files.length === 1 ? '' : 's'} are in ${b.relDir}/ (outside app/, and listed in .gitignore). Delete it once you have reviewed the diff.`
     : '';

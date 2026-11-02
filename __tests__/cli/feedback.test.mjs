@@ -595,7 +595,7 @@ test('backups live outside app/ under .upande-mobile-kit/backup/<timestamp>/, on
   b.save('does/not/exist.ts');
   assert.deepEqual(b.files, ['app/_layout.tsx']);
   assert.equal(readFileSync(join(root, b.relDir, 'app/_layout.tsx'), 'utf8'), ROOT_LAYOUT);
-  assert.match(backupNote(b), /Backups of 1 changed file are in \.upande-mobile-kit\/backup\/.*\(outside app\/\)\. Add \.upande-mobile-kit\/ to \.gitignore/);
+  assert.match(backupNote(b), /Backups of 1 changed file are in \.upande-mobile-kit\/backup\/.*\(outside app\/, and listed in \.gitignore\)/);
   assert.equal(backupNote(createBackup(root, false)), '');
 });
 

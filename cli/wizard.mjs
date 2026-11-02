@@ -573,7 +573,7 @@ async function wizard({ argv, root, flag, yes, noInstall, io, doctorFn }) {
   say('  • app.json  (edit: plugin, updates.url, runtimeVersion, extra.otaBaseUrl, extra.mobileKit.sites)');
   say('  • package.json  (edit: helper scripts)');
   say(layoutRel ? `  • ${layoutRel}  (edit: import the kit config, wrap in <MobileKitProvider>; the original is backed up to ${backup.relDir}/)` : '  • no root layout found: you add <MobileKitProvider> by hand');
-  say(`  • ${SAVED_FILE}  (remembered answers)`);
+  say(`  • ${SAVED_FILE}  (remembered answers; kept out of git via .gitignore, together with .upande-mobile-kit/)`);
   say('  Dependencies');
   say(doNative ? `  • native modules (always installed, SDK-aware via expo install): ${missingNow.length ? 'expo install adds: ' + (toAdd.join(', ') || '(nothing new)') : 'all present, nothing to install'}` : `  • NOT installing the native modules (--no-install); the app is incomplete until you run ${FIX_COMMAND}. Missing: ${missingNow.join(', ') || 'nothing'}`);
   if (doNative && present.length) say(`  • expo install may CHANGE the versions of: ${present.map((m) => `${m} ${depsBefore[m]}`).join(', ')} (the diff is printed afterwards)`);

@@ -71,7 +71,7 @@ The wizard in step 2 can do this for a bench on your own machine. Production is 
 
 ```bash
 cd my-expo-app
-npm install github:mark-judah/upande-mobile-kit#v0.7.1
+npm install github:mark-judah/upande-mobile-kit#v0.7.2
 npx upande-mobile-kit init
 ```
 
@@ -93,7 +93,7 @@ After you confirm, it:
 - edits `app.json` (plugin entry, `expo.updates.url`, `runtimeVersion`, `android.versionCode`, `extra.otaBaseUrl`, `extra.mobileKit.sites`), `package.json` (helper scripts) and your root layout (adds the config import and wraps the app in `<MobileKitProvider>`);
 - installs the native modules the kit needs with `npx expo install`;
 - installs and registers the backend on the bench you chose, and prints the commands to run on the production server;
-- saves your answers to `upande-mobile-kit.json` so a re-run is just Enter, Enter, Enter;
+- saves your answers to `upande-mobile-kit.json` (kept out of git automatically) so a re-run is just Enter, Enter, Enter;
 - runs `doctor` and prints what still needs doing.
 
 If it does not recognise your root layout it leaves it alone and prints the edit. By hand:
@@ -125,7 +125,7 @@ git commit -m "feat: add the mobile kit"
 git push
 ```
 
-Before `git add -A`, add `upande-mobile-kit.json` and `.upande-mobile-kit/` to `.gitignore` if the repo is shared (the first holds a path on your machine, the second holds backups of files `init` changed).
+`init` adds `upande-mobile-kit.json` (it holds a path on your machine) and `.upande-mobile-kit/` (backups of files `init` changed) to your `.gitignore`, creating the file if needed, so `git add -A` is safe. If either file was already committed, remove it from git with `git rm --cached upande-mobile-kit.json`.
 
 The push starts the release workflow, which creates the `gh-pages` branch. When that run finishes, do the [GitHub setup](#github-setup), mainly enabling Pages.
 
@@ -479,7 +479,7 @@ Without a terminal and without `--yes`, `init` stops and lists the flags to pass
 npx upande-mobile-kit init --yes --site https://your.site --dev-site http://localhost:8000 --bench /path/to/bench --bench-site my.site
 ```
 
-`init` copies every file it changes into `.upande-mobile-kit/backup/<timestamp>/` first, outside `app/` (a backup inside `app/` would become a route). Delete the folder once you have reviewed the diff.
+`init` copies every file it changes into `.upande-mobile-kit/backup/<timestamp>/` first, outside `app/` (a backup inside `app/` would become a route). The folder is listed in `.gitignore` for you. Delete it once you have reviewed the diff.
 
 ## Troubleshooting
 

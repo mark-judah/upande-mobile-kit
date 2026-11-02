@@ -1,6 +1,6 @@
 {
   "name": "@upande/mobile-kit",
-  "version": "0.7.1",
+  "version": "0.7.2",
   "description": "Drop-in Settings page for Expo apps: OTA + APK updates from GitHub, biometric unlock, device register and version info, backed by a Frappe app.",
   "license": "MIT",
   "private": true,
