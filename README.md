@@ -362,6 +362,18 @@ From top to bottom, the page shows:
 | Devices | A link to the Devices page. System Managers only |
 | Session | **Sign out** and **Forget this device**, shown when your `useAuth` provides `logout` and `forgetDevice` |
 
+## Help: report a problem, chat and what's new
+
+The **Help** card in Settings has three rows. Each can be turned off (`support: false`, `support: { chat: false }`, `whatsNew: false`).
+
+- **Report a problem.** The person writes a subject and what happened. The kit adds a **screenshot of the screen they were on** (taken when they tapped the floating button, before Settings covered it), the device and connection, the **last 15 requests** (addresses and results only, secrets removed), and **the last crash**. A "What will be sent" list shows all of it first. The report lands in the web portal under **Support** as a *Mobile Report*, with the screenshot, diagnostics and a status (Open, In Progress, Resolved). The screenshot needs `react-native-view-shot` in the build; without it the report is sent without one.
+- **Chat with support.** A simple conversation with your team. The person types, staff reply from the portal's Support page, and the reply shows in the app within a few seconds while the chat is open. A badge on the row shows unread replies.
+- **What's new.** After the app updates, a sheet shows the new version's release notes once (the same notes the release workflow writes to the GitHub Release: Features, Fixes and so on, without commit hashes). It never shows on a first install, and shows nothing for a version without notes. The row in Settings reopens it any time.
+
+**The last crash.** Unhandled errors and render errors are also saved on the phone, so a report filed after a black screen or a restart still carries what broke. It is sent only inside a report the person chooses to send, then forgotten.
+
+**Connection banner.** A banner appears when the phone has been offline for 25 seconds, or when the last round trip to your server took 3 seconds or more, with a **Wi-Fi settings** shortcut (an app cannot switch Wi-Fi itself on modern Android). Tune with `connectionBanner: { staleAfterSec: 25, slowMs: 3000 }` or turn it off with `connectionBanner: false`.
+
 ## The Devices page
 
 The Devices page, at `/mobile-kit/devices`, is the install register for this app, inside the app. It answers one question for an administrator: which phones run which build, and who is behind.
@@ -388,6 +400,8 @@ The page shows versions and who used each phone. Battery, storage, network and t
 
 ## Fingerprint unlock
 
+There are three ways to use it, set with `biometric`: `'kit'` (default, a flag only), `'host'` (your app owns the lock) and `'vault'` (the kit keeps the sign-in behind the fingerprint). The next section covers the vault.
+
 The **Biometric unlock** switch lives in the Security card of the Settings page. It is the user's choice to use a fingerprint (or face) instead of a password to sign back in.
 
 - **Turning it on** asks the phone to confirm with a fingerprint or face ("Confirm biometric unlock"; the phone's PIN is not accepted here). If the build has no `expo-local-authentication`, it says to install the latest build. If no fingerprint or face is enrolled in the phone's settings, it says to enrol one first. On success the choice is saved.
@@ -407,6 +421,27 @@ The **Biometric unlock** switch lives in the Security card of the Settings page.
   The helper is safe on a build without the native module: it reports "not available" instead of crashing.
 - **If your app already has its own lock**, set `biometric: 'host'`. The kit then never prompts for or enforces a lock itself, so there is one lock. The Settings switch stays when your `useAuth` provides `biometricEnabled` and `setBiometricEnabled`: it flips your own setting (after a fingerprint check when turning it on), and your app does the locking. Without a wired `useAuth` the switch is hidden, because there would be no real setting behind it. `init` detects an existing use of `expo-local-authentication` and sets `biometric: 'host'` for you.
 - **Sign out and Forget this device** are in the Session card. Sign out asks "You can sign back in with biometrics or your password." Forget this device asks "Clears your session and disables biometric unlock." Both call the functions your `useAuth` provides and then go to `loginRoute` (default `/login`).
+
+### Fingerprint sign-in vault (`biometric: 'vault'`)
+
+The vault stores the person's sign-in in the phone's secure storage, behind their fingerprint or face, so the login screen can offer **Sign in with fingerprint**. Needs `expo-secure-store` and `expo-local-authentication` in the build (`npx expo install expo-secure-store`, then a new native build); without them the Settings switch says so and nothing is stored.
+
+1. **Turn it on.** Settings shows **Fingerprint sign-in**. Turning it on asks for the password once (in the kit's own sheet, so it also works on Android), then the phone asks for the fingerprint to store it. Turning it off wipes it.
+2. **Offer it after login** (once per device) from your login screen:
+
+   ```tsx
+   import { useBiometricVault, BiometricSignIn } from '@upande/mobile-kit';
+
+   const vault = useBiometricVault();
+   // after a successful password login:
+   await vault.offer({ server: siteUrl, user: email, password });
+
+   // on the login screen: renders only when a sign-in is stored
+   <BiometricSignIn onCredentials={({ server, user, password }) => signIn(server, user, password)} />
+   ```
+3. **How it signs in.** The button asks for the fingerprint, then hands the stored `{ server, user, password }` to your `onCredentials`, which runs your normal login. If the password was changed on the server, the login fails and the message shows under the button; the person signs in with the new password and turns the switch on again.
+
+The password never leaves the phone and is never sent to your site except by your own login call. The kit keeps no copy outside secure storage; a plain marker (not the password) tells the screen whether one exists, so checking never prompts.
 
 ## Updates on the phone
 
@@ -490,14 +525,17 @@ configureMobileKit({
 | `authHeaders` | none | Extra headers for the built-in client |
 | `storage` | AsyncStorage, else memory | `{ get, set, remove }` |
 | `fab` | `true` | `true`, `false`, `'dev'` (development builds only) or `{ initialSide: 'left' \| 'right', bottom: 96, whenSignedOut: false }`. With your own `useAuth` wired the button hides until someone is signed in (your sign-in gate would send the page straight back to login); `whenSignedOut: true` shows it anyway |
-| `biometric` | `'kit'` | `'kit'`: Settings shows the Biometric unlock switch (it confirms with a fingerprint and stores the choice; your sign-in flow acts on it). `'host'`: your app already has its own lock, so the kit hides its switch and never prompts. See [Fingerprint unlock](#fingerprint-unlock) |
+| `biometric` | `'kit'` | `'kit'`: Settings shows the Biometric unlock switch (it confirms with a fingerprint and stores the choice; your sign-in flow acts on it). `'host'`: your app already has its own lock and enforces it. `'vault'`: the kit keeps the sign-in behind the fingerprint (see [Fingerprint sign-in vault](#fingerprint-sign-in-vault-biometric-vault)). See [Fingerprint unlock](#fingerprint-unlock) |
 | `apk.autoDownload` | `'wifi'` | `'wifi'`, `'always'` or `'never'`. The user's Settings choice wins |
+| `support` | `true` | `false` hides the Help card's report and chat rows; `{ report: false }` or `{ chat: false }` hides one |
+| `whatsNew` | `true` | Show release notes once after an update, and the Settings row |
+| `connectionBanner` | `true` | `false`, or `{ staleAfterSec: 25, slowMs: 3000 }` |
 | `apk.force` | `true` | `true`: a downloaded APK blocks the app with a dialog that cannot be closed until it is installed. `false`: the dialog has a **Later** button |
 | `monitor` | see below | Crash and API monitoring options |
 | `theme`, `ui` | built-in look | Colours and fonts, or swap `Screen`, `Card`, `Button`, `useToast`, `showDialog`, `useOnline` |
 | `serverApps` | Frappe and ERPNext | `[key, label][]` site apps to list on Settings |
 | `loginRoute` | `'/login'` | Where Sign out and Forget this device go |
-| `endpoints` | the `upande_mobile` paths | Override `registerInstall`, `installs`, `versions`, `ingest` |
+| `endpoints` | the `upande_mobile` paths | Override `registerInstall`, `installs`, `versions`, `ingest`, `submitReport`, `chat` |
 | `otaOpenWindowMs` | `20000` | A bundle downloaded within this long of opening restarts the app at once |
 | `foregroundReportMinMs` | `30000` | Minimum time between foreground device reports |
 | `settingsRoute`, `devicesRoute` | `/mobile-kit/settings`, `/mobile-kit/devices` | Rarely needed; the defaults live in a folder no app uses, so they cannot collide |
@@ -536,6 +574,17 @@ The kit needs ten native modules: `expo-updates`, `expo-constants`, `expo-file-s
 - `verify` and `doctor` report a missing module as an error.
 - The config plugin stops `expo prebuild`, EAS and CI with the exact command if one is missing. `strict: false` makes it a warning.
 - A native module added later only works after a new native build. An OTA update cannot deliver it. Settings shows "rebuild required" for a module that is installed but not in the running binary.
+
+
+**Optional extras.** These are never required and never nag; each switches on one feature when it is in the build.
+
+| Package | Adds |
+|---|---|
+| `react-native-view-shot` | The screenshot in **Report a problem** |
+| `expo-secure-store` | The [fingerprint sign-in vault](#fingerprint-sign-in-vault-biometric-vault) |
+| `@react-native-community/netinfo` | Wi-Fi name, signal, link speed and band in device reports |
+
+Install with `npx expo install <package>` and make a new native build (an OTA update cannot add native code).
 
 ## CLI reference
 
@@ -606,6 +655,8 @@ npx upande-mobile-kit init --yes --site https://your.site --dev-site http://loca
 - This package is public. Nothing secret belongs in it or in `src/mobile-kit.ts`.
 - Reports go only to your own Frappe site. Both the phone and the server redact secrets before they are stored. See [Privacy](#crash-and-api-monitoring).
 - The Wi-Fi name (only with netinfo and the location permission), signal and speed are stored with the device's health. Leave `@react-native-community/netinfo` out if you do not want them.
+- A problem report contains what the person typed, an optional screenshot of their screen (it may show anything that was on it) and the diagnostics listed in the sheet. The person sees the list before sending. Reports and chat messages are readable by System Managers only.
+- The fingerprint vault keeps the sign-in in the phone's secure storage and nowhere else.
 - The Android ID is stored only as a hash. The server also records the IP address it sees. It never records location.
 - Only System Managers can read the device register and the web portal.
 - The kit's own server calls to GitHub are unauthenticated. GitHub allows 60 per hour per IP address. Each phone checks once a day.

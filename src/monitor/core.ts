@@ -247,6 +247,18 @@ function dedupeKey(e: MonitorEvent): string {
     : `${e.kind}|${e.name ?? ''}|${e.message.slice(0, 200)}|${firstFrame(e.stack)}`;
 }
 
+/** The newest API calls (method, redacted URL, status, ms), oldest first, for a person's own problem report. */
+export function recentApiCalls(n = 15): { ts: string; method: string; url: string; status: number | null; ms: number }[] {
+  return state.crumbs
+    .peekLast(200)
+    .filter((c) => c.type === 'api' && c.data)
+    .slice(-n)
+    .map((c) => {
+      const d = c.data as { method: string; url: string; status: number | null; ms: number };
+      return { ts: new Date(c.ts).toISOString(), method: String(d.method), url: redactUrl(String(d.url), state.isSecret), status: d.status ?? null, ms: d.ms };
+    });
+}
+
 function crumbsFor(upTo: number): Breadcrumb[] {
   return state.crumbs.peekLast(state.opts.breadcrumbs).filter((c) => c.ts <= upTo).map((c) => {
     if (c.type === 'api' && c.data) {

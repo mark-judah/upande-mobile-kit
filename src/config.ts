@@ -115,6 +115,10 @@ export type KitEndpoints = {
   versions: string;
   /** Where crash / API reports are sent. */
   ingest: string;
+  /** Where "Report a problem" is sent. */
+  submitReport: string;
+  /** The person's support chat: `GET` fetches messages, `POST` sends one. */
+  chat: string;
 };
 
 export const DEFAULT_ENDPOINTS: KitEndpoints = {
@@ -122,6 +126,8 @@ export const DEFAULT_ENDPOINTS: KitEndpoints = {
   installs: '/api/method/upande_mobile.api.installs',
   versions: '/api/method/frappe.utils.change_log.get_versions',
   ingest: '/api/method/upande_mobile.api.monitor.ingest',
+  submitReport: '/api/method/upande_mobile.api.support.submit_report',
+  chat: '/api/method/upande_mobile.api.support.chat',
 };
 
 /** How the APK update is fetched once a newer one is found. */
@@ -234,7 +240,19 @@ export type MobileKitConfig = {
    * its own. The Settings switch still shows when your `useAuth` is wired: it sets YOUR `biometricEnabled`, and your
    * app does the locking. Without a wired `useAuth` the switch is hidden (there is no real setting behind it).
    */
-  biometric?: 'kit' | 'host';
+  biometric?: 'kit' | 'host' | 'vault';
+  /**
+   * Support tools in Settings: "Report a problem" (a screenshot and diagnostics filed on your site) and "Chat with
+   * support". `true` (default) shows both, `false` hides both, or turn one off: `{ chat: false }`.
+   */
+  support?: boolean | { report?: boolean; chat?: boolean };
+  /** Show "What's new" (from the GitHub release notes) once after the app updates, and as a Settings row. Default `true`. */
+  whatsNew?: boolean;
+  /**
+   * A banner when the phone has been offline for a while or the server answers very slowly, with a shortcut to the
+   * Wi-Fi settings. `true` (default), `false`, or `{ staleAfterSec: 25, slowMs: 3000 }`.
+   */
+  connectionBanner?: boolean | { staleAfterSec?: number; slowMs?: number };
   /**
    * Minimum time between two foreground device reports, ms (default 30000). Lock screens, permission prompts
    * and system dialogs fire repeated "active" events; this keeps them from each reaching the report path.
@@ -349,6 +367,11 @@ export const KitKeys = {
   monitorEnabled: 'upande_kit:monitor_enabled',
   monitorQueue: 'upande_kit:monitor_queue',
   fabPosition: 'upande_kit:fab_position',
+  lastCrash: 'upande_kit:last_crash',
+  lastSeenVersion: 'upande_kit:last_seen_version',
+  vaultOffered: 'upande_kit:vault_offered',
+  vaultMarker: 'upande_kit:vault_enrolled',
+  chatLastSeen: 'upande_kit:chat_last_seen',
 } as const;
 
 /** Default key for a server URL: lower-case host and path, no scheme, no trailing slash. */

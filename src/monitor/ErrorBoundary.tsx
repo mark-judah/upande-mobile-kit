@@ -1,5 +1,6 @@
 import { Component, type ErrorInfo, type ReactNode } from 'react';
 import { captureException } from './core';
+import { rememberCrash } from '../support/crash-store';
 
 type Props = {
   children?: ReactNode;
@@ -16,6 +17,7 @@ export class MonitorErrorBoundary extends Component<Props, { error: Error | null
   }
 
   componentDidCatch(error: Error, info: ErrorInfo) {
+    rememberCrash(error, { fatal: false, source: 'render' });
     captureException(error, { componentStack: (info.componentStack ?? '').slice(0, 4000) });
   }
 

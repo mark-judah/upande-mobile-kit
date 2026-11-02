@@ -1,5 +1,5 @@
 import { AppState, Appearance, Dimensions, PixelRatio, Platform } from 'react-native';
-import { requireOptionalNativeModule } from 'expo';
+import { hasNativeModule } from '../native-probe';
 import * as Updates from 'expo-updates';
 import { getInstallId } from '../devices/install-register';
 import { androidId } from '../devices/device-key';
@@ -27,7 +27,7 @@ function optional(nativeName: string, load: () => AnyModule): AnyModule | null {
   if (cache.has(nativeName)) return cache.get(nativeName) ?? null;
   let mod: AnyModule | null = null;
   try {
-    if (requireOptionalNativeModule(nativeName)) mod = load();
+    if (hasNativeModule(nativeName)) mod = load();
   } catch {
     mod = null;
   }

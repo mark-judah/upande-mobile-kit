@@ -6,6 +6,7 @@ import { DEFAULT_DEVICES_ROUTE, DEFAULT_SETTINGS_ROUTE, getConfig, KitKeys } fro
 import { openKitSettings } from '../open-settings';
 import { useInsets } from './insets';
 import { ProgressRing } from './ProgressRing';
+import { rememberScreen } from '../support/screenshot';
 import { useUpdateActivity } from '../updates/useUpdateActivity';
 import {
   clampBottom, decodePlacement, encodePlacement, FAB_SIZE, fabVisible, isTap, leftFor, placementAfterDrag, resolveFab,
@@ -110,7 +111,8 @@ function FabOverlay() {
           pos.flattenOffset();
           if (isTap(g.dx, g.dy)) {
             pos.setValue({ x: current.current.left, y: current.current.top });
-            openKitSettings();
+            // A screenshot of this screen for "Report a problem", taken before the Settings page covers it.
+            void rememberScreen().finally(openKitSettings);
           } else settle({ dx: g.dx, dy: g.dy });
         },
         onPanResponderTerminate: () => {

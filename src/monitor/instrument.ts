@@ -1,5 +1,6 @@
 import { captureApiCall, captureException, captureFatal, addBreadcrumb, monitorOptions } from './core';
 import type { KitApi } from '../config';
+import { rememberCrash } from '../support/crash-store';
 
 /**
  * The hooks that feed the monitor. Each is installed once, chains to whatever
@@ -22,6 +23,7 @@ export function installErrorHandler(): Undo {
   const previous = eu.getGlobalHandler?.();
   const handler = (error: unknown, isFatal?: boolean) => {
     try {
+      if (isFatal) rememberCrash(error, { fatal: true, source: 'global' });
       if (isFatal) captureFatal(error);
       else captureException(error);
     } catch {

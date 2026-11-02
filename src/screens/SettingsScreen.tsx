@@ -11,6 +11,8 @@ import { useApkUpdate } from '../updates/UpdateProvider';
 import { compareVersions } from '../updates/releases';
 import { APP_VERSION, codeLine, getServerVersions } from '../version';
 import { fontSize, spacing, ui } from '../ui/primitives';
+import { VaultRow } from '../vault/VaultRow';
+import { SupportCard } from '../support/SupportCard';
 import { captureApiCall, captureException, flushNow, isMonitoringEnabled, monitoringReady, setMonitoringEnabled } from '../monitor';
 
 /**
@@ -42,6 +44,7 @@ export function SettingsScreen({
   // The switch shows unless the app owns the lock AND has not wired its own `useAuth`: then there is no real flag for
   // the switch to set. With `useAuth` wired (even with `biometric: 'host'`) it flips the app's own setting, so the
   // person finds the fingerprint option here whoever enforces the lock.
+  const vaultMode = cfg.biometric === 'vault';
   const showBiometricRow = !hostOwnsLock || !cfg.standIns.useAuth;
   const [missing] = useState(() => missingModules(hostOwnsLock ? ['expo-local-authentication'] : []));
   const gaps = __DEV__ ? getConfigGaps() : [];
@@ -168,6 +171,10 @@ export function SettingsScreen({
 
       {showBiometricRow ? (
         <Card title="Security">
+          {vaultMode ? (
+            <VaultRow />
+          ) : (
+            <>
           <View style={s.row}>
             <View style={{ flex: 1 }}>
               <Text style={s.rowLabel}>Biometric unlock</Text>
@@ -183,8 +190,12 @@ export function SettingsScreen({
             </View>
             <Toggle value={auth.biometricEnabled} onChange={onToggleBiometric} styles={s} />
           </View>
+            </>
+          )}
         </Card>
       ) : null}
+
+      <SupportCard />
 
       {showMonitorRow ? (
         <Card title="Diagnostics">

@@ -64,4 +64,13 @@ export {
 } from './monitor';
 export type { Breadcrumb, DeviceFacts, MonitorEvent, MonitorKind, MonitorLevel, MonitorOptions, MonitorPayload, MonitorUser } from './monitor';
 
+export { useBiometricVault, isVaultSupported, isVaultEnrolled, enrolVault, unlockVault, clearVault } from './vault';
+export type { VaultCredentials } from './vault';
+export { BiometricSignIn } from './vault/BiometricSignIn';
+export { fetchWhatsNew } from './whats-new/WhatsNew';
+export { parseReleaseNotes } from './whats-new/notes';
+export type { NoteSection } from './whats-new/notes';
+export { peekCrash } from './support/crash-store';
+export type { StoredCrash } from './support/crash-store';
+
 export { restartForInstance, consumeInstanceSwitched } from './restart';

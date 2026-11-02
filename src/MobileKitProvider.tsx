@@ -7,6 +7,7 @@ import { createForegroundGate, DEFAULT_FOREGROUND_REPORT_MIN_MS } from './device
 import { watchKitRoute } from './route-guard';
 import { usePathname } from 'expo-router';
 import { KitFab } from './ui/KitFab';
+import { ConnectionBanner } from './ui/ConnectionBanner';
 import { missingModules, missingSummary } from './modules';
 import { setProbeSite } from './monitor/net-stats';
 import { addBreadcrumb, MonitorErrorBoundary, setMonitorContext, startMonitor } from './monitor';
@@ -34,6 +35,7 @@ export function MobileKitProvider({ children }: { children: ReactNode }) {
       {monitoring ? <MonitorBridge /> : null}
       {monitoring && monitor?.errorBoundary ? <MonitorErrorBoundary>{children}</MonitorErrorBoundary> : children}
       <KitFab />
+      <ConnectionBanner />
     </UpdateProvider>
   );
 }
