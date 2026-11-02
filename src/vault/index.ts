@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
+import { Alert } from 'react-native';
 import { getConfig, KitKeys } from '../config';
 import { hasNativeModule } from '../native-probe';
 import * as Biometric from '../biometric';
@@ -10,18 +11,25 @@ export type { VaultCredentials } from './vault-core';
 const VAULT_ITEM = 'upande_kit.vault.v1';
 
 let secureCache: core.SecureStoreLike | null | undefined;
+
+/**
+ * `require` directly inside `try`: the only shape Metro accepts for a package the app may not have installed
+ * (anything else fails the whole bundle with "Unable to resolve module").
+ */
+function loadSecureStore(): core.SecureStoreLike | null {
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports -- optional package
+    const m = require('expo-secure-store');
+    return m?.setItemAsync ? (m as core.SecureStoreLike) : null;
+  } catch {
+    return null;
+  }
+}
+
 function secureStore(): core.SecureStoreLike | null {
   if (secureCache !== undefined) return secureCache;
-  secureCache = null;
-  try {
-    if (hasNativeModule('ExpoSecureStore')) {
-      // eslint-disable-next-line @typescript-eslint/no-require-imports -- optional, only once its native side is known to exist
-      const m = require('expo-secure-store');
-      if (m?.setItemAsync) secureCache = m as core.SecureStoreLike;
-    }
-  } catch {
-    secureCache = null;
-  }
+  // Only touch the package once its native side is known to exist in this build.
+  secureCache = hasNativeModule('ExpoSecureStore') ? loadSecureStore() : null;
   return secureCache;
 }
 
@@ -105,8 +113,6 @@ export function useBiometricVault() {
 }
 
 function defaultConfirm(): Promise<boolean> {
-  // eslint-disable-next-line @typescript-eslint/no-require-imports -- react-native is always present
-  const { Alert } = require('react-native');
   return new Promise((resolve) => {
     Alert.alert(
       'Turn on fingerprint sign-in?',

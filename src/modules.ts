@@ -38,19 +38,68 @@ export const OPTIONAL_MODULES: OptionalModule[] = (MODULE_LIST as Entry[])
   .map(({ pkg, native, disables }) => ({ pkg, native, disables }));
 
 /**
- * Loaders with LITERAL package names: Metro can only bundle (or optionally skip) a `require` whose argument
+ * Loaders with LITERAL package names, each `require` directly inside `try` (the only shape Metro will skip when the
+ * package is not installed; anywhere else it fails the whole bundle). Metro can only bundle a `require` whose argument
  * is a string literal; a variable one is rejected at runtime, which made every package look missing.
  */
 const LOADERS: Record<string, () => unknown> = {
   /* eslint-disable @typescript-eslint/no-require-imports -- optional packages, probed on purpose */
-  'expo-file-system': () => require('expo-file-system'),
-  'expo-intent-launcher': () => require('expo-intent-launcher'),
-  'expo-local-authentication': () => require('expo-local-authentication'),
-  'expo-network': () => require('expo-network'),
-  'expo-device': () => require('expo-device'),
-  'expo-battery': () => require('expo-battery'),
-  'expo-localization': () => require('expo-localization'),
-  '@react-native-async-storage/async-storage': () => require('@react-native-async-storage/async-storage'),
+  'expo-file-system': () => {
+    try {
+      return require('expo-file-system');
+    } catch (e) {
+      throw e; // a missing package surfaces as the probe's load error
+    }
+  },
+  'expo-intent-launcher': () => {
+    try {
+      return require('expo-intent-launcher');
+    } catch (e) {
+      throw e; // a missing package surfaces as the probe's load error
+    }
+  },
+  'expo-local-authentication': () => {
+    try {
+      return require('expo-local-authentication');
+    } catch (e) {
+      throw e; // a missing package surfaces as the probe's load error
+    }
+  },
+  'expo-network': () => {
+    try {
+      return require('expo-network');
+    } catch (e) {
+      throw e; // a missing package surfaces as the probe's load error
+    }
+  },
+  'expo-device': () => {
+    try {
+      return require('expo-device');
+    } catch (e) {
+      throw e; // a missing package surfaces as the probe's load error
+    }
+  },
+  'expo-battery': () => {
+    try {
+      return require('expo-battery');
+    } catch (e) {
+      throw e; // a missing package surfaces as the probe's load error
+    }
+  },
+  'expo-localization': () => {
+    try {
+      return require('expo-localization');
+    } catch (e) {
+      throw e; // a missing package surfaces as the probe's load error
+    }
+  },
+  '@react-native-async-storage/async-storage': () => {
+    try {
+      return require('@react-native-async-storage/async-storage');
+    } catch (e) {
+      throw e; // a missing package surfaces as the probe's load error
+    }
+  },
   /* eslint-enable @typescript-eslint/no-require-imports */
 };
 

@@ -36,10 +36,16 @@ function optional(nativeName: string, load: () => AnyModule): AnyModule | null {
   return mod;
 }
 /* eslint-disable @typescript-eslint/no-require-imports -- must not load without the native module */
-const device = () => optional('ExpoDevice', () => require('expo-device'));
-const battery = () => optional('ExpoBattery', () => require('expo-battery'));
-const network = () => optional('ExpoNetwork', () => require('expo-network'));
-const localization = () => optional('ExpoLocalization', () => require('expo-localization'));
+// Each loader is `require` directly inside `try`, the only shape Metro accepts for a package that may be missing.
+const loadDevice = () => { try { return require('expo-device'); } catch { return null; } };
+const loadBattery = () => { try { return require('expo-battery'); } catch { return null; } };
+const loadNetwork = () => { try { return require('expo-network'); } catch { return null; } };
+const loadLocalization = () => { try { return require('expo-localization'); } catch { return null; } };
+const loadNetInfo = () => { try { return require('@react-native-community/netinfo'); } catch { return null; } };
+const device = () => optional('ExpoDevice', loadDevice);
+const battery = () => optional('ExpoBattery', loadBattery);
+const network = () => optional('ExpoNetwork', loadNetwork);
+const localization = () => optional('ExpoLocalization', loadLocalization);
 /* eslint-enable @typescript-eslint/no-require-imports */
 
 const str = (v: unknown): string | undefined => (typeof v === 'string' && v ? v : undefined);
@@ -166,8 +172,7 @@ function siteUrl(): string | undefined {
 
 /** Wi-Fi name / link speed / signal, when `@react-native-community/netinfo` is installed in the build. */
 async function linkDetails(): Promise<Partial<DeviceFacts>> {
-  // eslint-disable-next-line @typescript-eslint/no-require-imports -- optional, only after its native side answers
-  const ni = optional('RNCNetInfo', () => require('@react-native-community/netinfo'));
+  const ni = optional('RNCNetInfo', loadNetInfo);
   const fetchState = ni?.fetch ?? ni?.default?.fetch;
   if (!fetchState) return {};
   const state = await fetchState.call(ni?.default ?? ni);
