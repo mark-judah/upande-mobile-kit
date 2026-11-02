@@ -117,10 +117,52 @@ export function scanMarkers(commits) {
 }
 
 /**
+ * What changed since the last release that only a new APK can carry. Pure: pass the package.json and app.json of the
+ * last release (`before`, null when unknown) and of now (`after`), plus the native folders git says changed.
+ *
+ *  - a dependency that has native code (expo-*, react-native-*, @react-native*, @shopify/*...) added, removed or changed
+ *  - app.json plugins, permissions, and the android / ios blocks (the version bump's own versionCode is ignored)
+ *  - files under android/ or ios/
+ *
+ * Returns short sentences; an empty list means a JS bundle is enough.
+ */
+const NATIVE_DEP = /^(expo($|-)|react-native($|-)|@react-native|@react-native-|@shopify\/|@expo\/(vector-icons|react-native)|@sentry\/react-native)/;
+export function nativeChanges({ before, after, nativeFiles = [] }) {
+  const out = [];
+  if (before?.pkg && after?.pkg) {
+    const deps = (p) => ({ ...(p.dependencies ?? {}) });
+    const a = deps(before.pkg);
+    const b = deps(after.pkg);
+    const names = [...new Set([...Object.keys(a), ...Object.keys(b)])].filter((n) => NATIVE_DEP.test(n) && n !== 'expo-router').sort();
+    const added = names.filter((n) => !(n in a) && n in b);
+    const removed = names.filter((n) => n in a && !(n in b));
+    const changed = names.filter((n) => n in a && n in b && a[n] !== b[n]);
+    if (added.length) out.push(`native dependencies added: ${added.join(', ')}`);
+    if (removed.length) out.push(`native dependencies removed: ${removed.join(', ')}`);
+    if (changed.length) out.push(`native dependencies changed: ${changed.join(', ')}`);
+  }
+  if (before?.app && after?.app) {
+    const pick = (cfg) => {
+      const e = { ...(cfg?.expo ?? {}) };
+      const android = { ...(e.android ?? {}) };
+      delete android.versionCode;
+      return { plugins: e.plugins ?? null, android, ios: e.ios ?? null, newArchEnabled: e.newArchEnabled ?? null, jsEngine: e.jsEngine ?? null };
+    };
+    const x = pick(before.app);
+    const y = pick(after.app);
+    for (const k of Object.keys(x)) {
+      if (JSON.stringify(x[k]) !== JSON.stringify(y[k])) out.push(`app.json ${k} changed`);
+    }
+  }
+  if (nativeFiles.length) out.push(`native folders changed (${nativeFiles.slice(0, 3).join(', ')}${nativeFiles.length > 3 ? ', ...' : ''})`);
+  return out;
+}
+
+/**
  * One decision, with the reason in words. `bumpFlag` is what was asked for (`auto`, `patch`, `minor`, `major` or
  * nothing); an explicit minor/major or a `--set` version always wins over commit markers.
  */
-export function decideRelease({ bumpFlag, setTo, apkFlag, commits, sdkChanged, currentRuntime, offsets, currentVersion }) {
+export function decideRelease({ bumpFlag, setTo, apkFlag, commits, sdkChanged, nativeChanged = [], currentRuntime, offsets, currentVersion }) {
   const asked = bumpFlag ?? 'auto';
   if (!['auto', 'patch', 'minor', 'major'].includes(asked)) throw new Error(`--bump must be auto, patch, minor or major (got "${asked}").`);
   const marks = scanMarkers(commits);
@@ -141,9 +183,11 @@ export function decideRelease({ bumpFlag, setTo, apkFlag, commits, sdkChanged, c
     bump = 'minor';
     why.push('the Expo SDK changed, and a bundle from another SDK cannot go over the air');
   }
-  const forceApk = Boolean(apkFlag || marks.apk);
+  const autoApk = nativeChanged.length > 0 && !marks.otaCancelled;
+  const forceApk = Boolean(apkFlag || marks.apk || autoApk);
   if (apkFlag) why.push('--apk');
   else if (marks.apk) why.push(`commit ${marks.apk} contains [apk]`);
+  if (autoApk && !apkFlag && !marks.apk) why.push(`${nativeChanged.join('; ')} - these need a new APK, so one is built`);
   if (marks.otaCancelled && !setTo && asked !== 'minor' && asked !== 'major') why.push('newest commit has [ota]: no APK was requested by markers');
   const policyRuntime = typeof currentRuntime !== 'string';
   return { bump, forceApk, why, marks, policyRuntime, asked, currentVersion, offsets };

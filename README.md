@@ -354,6 +354,9 @@ The kit reads the commit messages since the last `v*` tag (subject and body, any
 | `[major]` | A major bump, a new runtime, and an APK. |
 | `[ota]` or `[skip-apk]` | Only in the **newest** commit: cancels any `[apk]` marker in this release range (including its own). It does not cancel `[native]` or `[major]`. |
 
+
+**Native changes need no marker.** Compared with the last release, a changed native dependency (`expo-*`, `react-native-*` and similar), a changed `plugins`, `android` or `ios` block in `app.json`, or anything under `android/` or `ios/` builds an APK on its own, and the plan says why. `[ota]` in the newest commit still cancels it. The release tag the app installed from is a good reminder: an OTA update never changes the APK, so the Settings page shows an **APK** row beside **Installed**.
+
 Examples:
 
 ```bash

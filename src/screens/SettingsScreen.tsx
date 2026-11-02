@@ -9,7 +9,7 @@ import * as Biometric from '../biometric';
 import { ApkUpdateSection } from '../updates/ApkUpdateSection';
 import { useApkUpdate } from '../updates/UpdateProvider';
 import { compareVersions } from '../updates/releases';
-import { APP_VERSION, codeLine, getServerVersions } from '../version';
+import { APP_VERSION, INSTALLED_APK_KNOWN, INSTALLED_APK_VERSION, codeLine, getServerVersions } from '../version';
 import { KIT_VERSION } from '../kit-version';
 import { fontSize, spacing, ui } from '../ui/primitives';
 import { VaultRow } from '../vault/VaultRow';
@@ -234,6 +234,7 @@ export function SettingsScreen({
         )}
         <InfoRow label="Upande Mobile Kit" value={`v${KIT_VERSION}`} styles={s} />
         <InfoRow label="Installed" value={`v${APP_VERSION}`} styles={s} />
+        {INSTALLED_APK_KNOWN ? <InfoRow label="APK" value={`v${INSTALLED_APK_VERSION}`} styles={s} /> : null}
         <InfoRow label="Latest" value={`v${latest}`} styles={s} />
         <InfoRow label="Code" value={codeLine()} styles={s} />
         <View style={{ height: spacing.md }} />

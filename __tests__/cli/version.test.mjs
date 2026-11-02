@@ -190,3 +190,31 @@ test('dry run prints a summary line and changes nothing', () => {
   assert.match(line, /^1\.2\.3 -> 1\.2\.4 \(patch, versionCode \d+, 1 commit since the beginning\)/);
   assert.equal(JSON.parse(readFileSync(join(dir, 'app.json'), 'utf8')).expo.version, '1.2.3');
 });
+
+import { nativeChanges, decideRelease as decideNative } from '../../cli/version-lib.mjs';
+
+const mkPkg = (deps) => ({ dependencies: deps });
+const mkApp = (expo) => ({ expo });
+const baseNative = {
+  pkg: mkPkg({ expo: '~54.0.0', 'expo-router': '~6.0.0', axios: '1.0.0' }),
+  app: mkApp({ version: '1.0.0', android: { versionCode: 1 }, plugins: ['a'] }),
+};
+
+test('native changes: nothing when only JS dependencies and the version moved', () => {
+  const after = { pkg: mkPkg({ expo: '~54.0.0', 'expo-router': '~6.1.0', axios: '1.1.0', lodash: '4' }), app: mkApp({ version: '1.0.1', android: { versionCode: 2 }, plugins: ['a'] }) };
+  assert.deepEqual(nativeChanges({ before: baseNative, after }), []);
+});
+
+test('native changes: flags a new native dependency, a plugin change and native folders', () => {
+  const after = { pkg: mkPkg({ expo: '~54.0.0', 'expo-router': '~6.0.0', axios: '1.0.0', 'react-native-view-shot': '4.0.3' }), app: mkApp({ version: '1.0.1', android: { versionCode: 2 }, plugins: ['a', 'b'] }) };
+  const out = nativeChanges({ before: baseNative, after, nativeFiles: ['android/app/build.gradle'] });
+  assert.equal(out.length, 3);
+  assert.match(out[0], /added: react-native-view-shot/);
+});
+
+test('native changes: build an APK without a marker, unless the newest commit says [ota]', () => {
+  const args = { commits: [{ hash: 'abc1234', subject: 'feat: x', body: '' }], currentRuntime: '1.2', offsets: {}, currentVersion: '1.2.3', nativeChanged: ['native dependencies added: expo-notifications'] };
+  assert.equal(decideNative(args).forceApk, true);
+  assert.match(decideNative(args).why.join(' '), /need a new APK/);
+  assert.equal(decideNative({ ...args, commits: [{ hash: 'abc1234', subject: 'feat: x [ota]', body: '' }] }).forceApk, false);
+});

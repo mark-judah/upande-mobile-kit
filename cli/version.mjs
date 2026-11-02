@@ -19,6 +19,7 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import {
   decideRelease,
+  nativeChanges,
   nextVersion,
   offsetsFrom,
   parseCommit,
@@ -76,6 +77,20 @@ export function run(argv, root = process.cwd()) {
   const expoSdk = Number(String(pkg.dependencies?.expo ?? '').replace(/^[^\d]*/, '').split('.')[0]);
   const runtimeSdk = appConfig.expo.extra?.runtimeSdk;
   const sdkChanged = Number.isFinite(expoSdk) && runtimeSdk != null && runtimeSdk !== expoSdk;
+  // Native changes since the last release: a JS bundle cannot carry them, so they build an APK without a marker.
+  const showAt = (file) => {
+    if (!tag) return null;
+    const raw = git('show', `${tag}:${file}`);
+    try {
+      return raw ? JSON.parse(raw) : null;
+    } catch {
+      return null;
+    }
+  };
+  const nativeFiles = tag ? git('diff', '--name-only', tag, 'HEAD', '--', 'android', 'ios').split('\n').filter(Boolean) : [];
+  const nativeChanged = tag
+    ? nativeChanges({ before: { pkg: showAt('package.json'), app: showAt('app.json') }, after: { pkg, app: appConfig }, nativeFiles })
+    : [];
   const setTo = flagValue('set');
   if (setTo) parseVersion(setTo);
   const decision = decideRelease({
@@ -84,6 +99,7 @@ export function run(argv, root = process.cwd()) {
     apkFlag: hasFlag('apk'),
     commits,
     sdkChanged,
+    nativeChanged,
     currentRuntime: appConfig.expo.runtimeVersion,
     offsets,
     currentVersion,
