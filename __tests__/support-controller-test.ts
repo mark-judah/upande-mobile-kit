@@ -30,6 +30,14 @@ describe('opening support from anywhere', () => {
     off();
   });
 
+  it('can open straight into one conversation (a tapped notification)', () => {
+    const seen: [string, string | undefined][] = [];
+    const off = onSupportRequest((s, th) => seen.push([s, th]));
+    expect(openSupportChat('ISS-2026-00214')).toBe(true);
+    expect(seen).toEqual([['chat', 'ISS-2026-00214']]);
+    off();
+  });
+
   it('does nothing, and says so, when the kit is not mounted (no host listening)', async () => {
     expect(await openReportProblem()).toBe(false);
     expect(openSupportChat()).toBe(false);

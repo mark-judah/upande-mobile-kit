@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { getConfig } from '../config';
 import { fontSize, spacing, ui, useTheme } from '../ui/primitives';
@@ -9,13 +9,14 @@ import type { NoteSection } from '../whats-new/notes';
 import { SupportInbox } from './SupportInbox';
 import { ReportIssueModal } from './ReportIssueModal';
 import { fetchUnreadCount } from './support-api';
+import { disableReplyNotifications, enableReplyNotifications, isPushSupported, pushEnabled, pushStatusMessage } from '../push';
 import { supportOptions } from './options';
 
 /** The "Help" card in Settings: report a problem, chat with support, and the notes of this version. */
 export function SupportCard() {
   const cfg = getConfig();
   const { Card, useToast } = ui();
-  const { showSuccess } = useToast();
+  const { showSuccess, showError } = useToast();
   const t = useTheme();
   const s = useMemo(() => styles(t), [t]);
   const opts = supportOptions(cfg.support);
@@ -24,6 +25,22 @@ export function SupportCard() {
   const [unread, setUnread] = useState(0);
   const [sections, setSections] = useState<NoteSection[] | null>(null);
   const [loadingNotes, setLoadingNotes] = useState(false);
+  const pushSupported = opts.chat && isPushSupported();
+  const [pushOn, setPushOn] = useState(false);
+  useEffect(() => {
+    if (pushSupported) void pushEnabled().then(setPushOn);
+  }, [pushSupported]);
+  const togglePush = async () => {
+    if (pushOn) {
+      setPushOn(false);
+      await disableReplyNotifications();
+      return;
+    }
+    const status = await enableReplyNotifications();
+    setPushOn(status === 'ok');
+    if (status === 'ok') showSuccess(pushStatusMessage(status));
+    else showError(pushStatusMessage(status));
+  };
   const signedIn = !!cfg.useAuth().user || cfg.standIns.useAuth;
 
   useEffect(() => {
@@ -63,6 +80,18 @@ export function SupportCard() {
       <Card title="Help">
         {opts.report ? <Row icon="bug-outline" label="Report a problem" hint="Send us a screenshot and what went wrong" onPress={() => setOpen('report')} /> : null}
         {opts.chat ? <Row icon="chatbubbles-outline" label="Chat with support" hint="Ask a question and get a reply here" badge={unread} onPress={() => setOpen('chat')} /> : null}
+        {pushSupported ? (
+          <View style={s.row}>
+            <Ionicons name="notifications-outline" size={20} color={t.primary} />
+            <View style={{ flex: 1 }}>
+              <Text style={s.label}>Notify me about replies</Text>
+              <Text style={s.hint}>A notification when support answers</Text>
+            </View>
+            <TouchableOpacity accessibilityRole="switch" accessibilityState={{ checked: pushOn }} onPress={() => void togglePush()} activeOpacity={0.8} style={[s.toggle, pushOn && { backgroundColor: t.primary }]}>
+              <View style={[s.dot2, pushOn && { alignSelf: 'flex-end' }]} />
+            </TouchableOpacity>
+          </View>
+        ) : null}
         {notes ? <Row icon="sparkles-outline" label="What's new" hint={`Changes in v${APP_VERSION}`} onPress={openNotes} /> : null}
       </Card>
       {open === 'report' ? (
@@ -86,5 +115,7 @@ const styles = (t: ReturnType<typeof useTheme>) =>
     label: { fontSize: fontSize.sm, fontWeight: '600', color: t.text },
     hint: { fontSize: fontSize.xs, color: t.textMuted, marginTop: 2 },
     badge: { minWidth: 20, height: 20, borderRadius: 10, backgroundColor: t.danger, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 5 },
+    toggle: { width: 46, height: 26, borderRadius: 13, backgroundColor: t.border, padding: 2, justifyContent: 'center' },
+    dot2: { width: 22, height: 22, borderRadius: 11, backgroundColor: '#fff', alignSelf: 'flex-start' },
     badgeText: { color: '#fff', fontSize: 11, fontWeight: '700' },
   });

@@ -122,6 +122,10 @@ export type KitEndpoints = {
   chat: string;
   /** The person's conversations with support (their Issues for this app). */
   supportThreads: string;
+  /** Offers this phone's Expo push token for support-reply notifications. */
+  registerPush: string;
+  /** Forgets this phone's token. */
+  unregisterPush: string;
   /** One conversation: what they wrote, then the comments on the Issue. */
   supportThread: string;
   /** The person's answer on a conversation. */
@@ -136,6 +140,8 @@ export const DEFAULT_ENDPOINTS: KitEndpoints = {
   submitReport: '/api/method/upande_mobile.api.support.submit_report',
   chat: '/api/method/upande_mobile.api.support.chat',
   supportThreads: '/api/method/upande_mobile.api.support.threads',
+  registerPush: '/api/method/upande_mobile.api.support.register_push',
+  unregisterPush: '/api/method/upande_mobile.api.support.unregister_push',
   supportThread: '/api/method/upande_mobile.api.support.thread',
   supportReply: '/api/method/upande_mobile.api.support.reply',
 };
@@ -258,6 +264,12 @@ export type MobileKitConfig = {
   support?: boolean | { report?: boolean; chat?: boolean };
   /** Show "What's new" (from the GitHub release notes) once after the app updates, and as a Settings row. Default `true`. */
   whatsNew?: boolean;
+  /**
+   * Push notifications for support replies (needs `expo-notifications`, an Expo project id and, on Android, Firebase
+   * credentials). `true` (default): the person can turn them on in Settings, and is offered them after their first
+   * message. `false`: never. `{ projectId }` sets the Expo project id when it is not in `extra.eas.projectId`.
+   */
+  push?: boolean | { projectId?: string };
   /**
    * A banner when the phone has been offline for a while or the server answers very slowly, with a shortcut to the
    * Wi-Fi settings. `true` (default), `false`, or `{ staleAfterSec: 25, slowMs: 3000 }`.
@@ -396,6 +408,9 @@ export const KitKeys = {
   vaultOffered: 'upande_kit:vault_offered',
   vaultMarker: 'upande_kit:vault_enrolled',
   chatLastSeen: 'upande_kit:chat_last_seen',
+  pushEnabled: 'upande_kit:push_enabled',
+  pushOffered: 'upande_kit:push_offered',
+  pushToken: 'upande_kit:push_token',
 } as const;
 
 /** Default key for a server URL: lower-case host and path, no scheme, no trailing slash. */

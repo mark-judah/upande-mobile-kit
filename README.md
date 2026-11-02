@@ -46,6 +46,7 @@ Every feature name links to its section. "Needs" lists native modules beyond the
 |---|---|---|
 | [Report a problem](#report-a-problem) | From any screen (header button, long-press or your own trigger): a screenshot, the device, the last requests and the last crash, filed as an Issue on your site | `react-native-view-shot` for the screenshot |
 | [Chat with support](#chat-with-support) | The person's conversations with your team, as Issues: support answers with a comment on the Issue, the answer shows in the app | none |
+| [Reply notifications](#reply-notifications) | A push notification when support replies; tapping it opens the conversation | `expo-notifications`, an Expo project id, Firebase on Android |
 | [What's new](#whats-new) | The release notes, shown once after an update | none |
 | [Last crash capture](#last-crash-capture) | The crash that made someone write in is attached to their report | none |
 | [Connection banner](#connection-banner) | A warning when the phone is really offline (even when Android claims otherwise) or the server is slow, with a Wi-Fi settings shortcut | none |
@@ -669,7 +670,25 @@ On a site with the **Issue** doctype (ERPNext or Helpdesk) a conversation **is a
 
 On a site without Issue the kit falls back to a single chat thread with support (Mobile Chat doctypes, answered from the portal's Support page).
 
-Only the person's own Issues are ever shown, and only replies they have not yet seen count as unread. Replies are not pushed to the phone (the badge updates when the app opens or the chat is open); push notifications would need `expo-notifications` and a push token on the user.
+Only the person's own Issues are ever shown, and only replies they have not yet seen count as unread. Replies reach the phone as [push notifications](#reply-notifications) when the person turns them on; otherwise the badge updates when the app opens or the chat is open.
+
+### Reply notifications
+
+When support answers a conversation, the person's phone gets a push notification, and tapping it opens that conversation.
+
+**For the person.** Settings > Help has a **Notify me about replies** switch. They are also asked once, in words, right after their first message. Turning it on asks Android for permission. The switch only appears in a build that can receive notifications.
+
+**How it works.** The phone registers its Expo push token with your site (`register_push`), kept per person and app. When someone on your team adds a **Comment** to the person's Issue, the site sends the push through Expo's push service (`https://exp.host`, nothing else is contacted). The notification says "Reply on <subject>" and shows the start of the reply. A token Expo reports as gone is deleted. Signing out forgets the phone's token, and the next person to sign in registers it for themselves. The kit never changes how your app's own notifications are shown, and only reacts to notifications that carry its own marker.
+
+**What the app needs** (once, all of it is standard Expo):
+
+| Requirement | How |
+|---|---|
+| `expo-notifications` in the build | `npx expo install expo-notifications`, add `"expo-notifications"` to `plugins` in `app.json`, then a new native build |
+| An Expo project id | `expo.extra.eas.projectId` in `app.json` (a free Expo account is enough; no EAS builds are needed), or `push: { projectId }` in the kit config |
+| Firebase on Android | `android.googleServicesFile` pointing at your `google-services.json`, and the Firebase (FCM v1) credentials uploaded to your Expo project |
+
+`push: false` turns the whole feature off. Without the requirements the switch simply does not appear (or says what is missing if you tap it).
 
 ### What's new
 
@@ -720,7 +739,7 @@ configureMobileKit({
 | `authHeaders` | none | Extra headers for the built-in client |
 | `storage` | AsyncStorage, else memory | `{ get, set, remove }` |
 | `loginRoute` | `'/login'` | Where Sign out and Forget this device go |
-| `endpoints` | the `upande_mobile` paths | Override `registerInstall`, `installs`, `versions`, `ingest`, `submitReport`, `chat`, `supportThreads`, `supportThread`, `supportReply` |
+| `endpoints` | the `upande_mobile` paths | Override `registerInstall`, `installs`, `versions`, `ingest`, `submitReport`, `chat`, `supportThreads`, `supportThread`, `supportReply`, `registerPush`, `unregisterPush` |
 | `instanceKey`, `deviceKey` | none | Optional hooks: how a server URL becomes a storage key, and a better hardware id |
 
 Without `useAuth`, `api` and `storage` the kit runs on stand-ins. The Settings page looks fine, but sign-out, the biometric switch and the device register are not connected to your session. `init` wires them when it finds your auth store, API client and storage, development builds log what is still a stand-in, and `getConfigGaps()` returns the list.
@@ -758,6 +777,7 @@ Without `useAuth`, `api` and `storage` the kit runs on stand-ins. The Settings p
 | Key | Default | Meaning |
 |---|---|---|
 | `support` | `true` | `false` hides **Report a problem** and **Chat with support**; `{ report: false }` or `{ chat: false }` hides one |
+| `push` | `true` | Reply notifications: `false` turns them off; `{ projectId }` sets the Expo project id when it is not in `extra.eas.projectId`. See [Reply notifications](#reply-notifications) |
 | `whatsNew` | `true` | Show release notes once after an update, and the Settings row |
 | `connectionBanner` | `true` | `false`, or `{ staleAfterSec: 25, slowMs: 3000 }` |
 
@@ -806,6 +826,7 @@ These are never required and never nag; each switches on one feature when it is 
 | Package | Adds |
 |---|---|
 | `react-native-view-shot` | The screenshot in [Report a problem](#report-a-problem) |
+| `expo-notifications` | [Reply notifications](#reply-notifications) (also needs an Expo project id and, on Android, Firebase) |
 | `expo-secure-store` | The [fingerprint sign-in vault](#fingerprint-sign-in-vault) |
 | `@react-native-community/netinfo` | Wi-Fi name, signal, link speed and band ([Network and performance](#network-and-performance)) |
 
@@ -882,6 +903,9 @@ npx upande-mobile-kit init --yes --site https://your.site --dev-site http://loca
 | A report has no screenshot | `react-native-view-shot` is not in the build, or Settings was opened without the floating button | `npx expo install react-native-view-shot`, then a new native build |
 | **Chat with support** never shows replies | Nobody has replied yet, or the backend lacks the support endpoints | On a site with Issues, reply with a Comment on the Issue in Desk. Update the backend to 0.3.0 or newer and run `bench migrate` |
 | A reply was written on the Issue but the person does not see it | It was an email reply or an internal note, not a Comment | Add a **Comment** on the Issue; only Comments appear in the app |
+| No notification arrives when support replies | Not turned on; the build lacks `expo-notifications`; no Expo project id or Firebase credentials; the reply was an email or note, not a **Comment**; or the site has push off (`upande_mobile_push: 0`) | Check Settings > Help > Notify me about replies; see the requirements in [Reply notifications](#reply-notifications); add a Comment on the Issue |
+| The "Notify me about replies" switch is missing | The build cannot receive notifications, or `push: false` | `npx expo install expo-notifications`, add the plugin, make a new native build |
+| Tapping a notification does not open the conversation | The notification was not sent by the kit's backend (no support marker) | Only support-reply notifications carry it |
 | The offline banner never appears on one handheld model | Older kit versions trusted Android's "connected" | Update the kit; the banner now also counts failed requests |
 | The person is thrown to the login screen when the session expires | No silent re-login | Turn on the [vault](#fingerprint-sign-in-vault) and set `sessionRecovery.login` |
 | "What's new" never appears | A first install, no notes on that GitHub release, or `whatsNew: false` | Add notes through commit messages; the row in Settings reopens it |

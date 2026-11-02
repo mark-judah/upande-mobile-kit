@@ -9,6 +9,7 @@ import { usePathname } from 'expo-router';
 import { KitFab } from './ui/KitFab';
 import { ConnectionBanner } from './ui/ConnectionBanner';
 import { SupportHost } from './support/SupportHost';
+import { PushBridge } from './push/PushBridge';
 import { missingModules, missingSummary } from './modules';
 import { setProbeSite } from './monitor/net-stats';
 import { addBreadcrumb, MonitorErrorBoundary, setMonitorContext, startMonitor } from './monitor';
@@ -38,6 +39,7 @@ export function MobileKitProvider({ children }: { children: ReactNode }) {
       <KitFab />
       <ConnectionBanner />
       <SupportHost />
+      <PushBridge />
     </UpdateProvider>
   );
 }

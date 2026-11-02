@@ -3,7 +3,8 @@ import { ActivityIndicator, AppState, FlatList, Pressable, ScrollView, StyleShee
 import { Ionicons } from '@expo/vector-icons';
 import { getConfig } from '../config';
 import { Sheet } from '../ui/Sheet';
-import { fontSize, spacing, useTheme } from '../ui/primitives';
+import { fontSize, spacing, ui, useTheme } from '../ui/primitives';
+import { offerReplyNotifications } from '../push';
 import { ChatModal } from './ChatModal';
 import { collectDiagnostics } from './diagnostics';
 import { fetchThread, fetchThreads, markSeen, loadSeen, mergeMessages, replyThread, submitReport, unreadThreads, type ChatMessage, type ThreadSummary } from './support-api';
@@ -17,11 +18,11 @@ type View_ = { kind: 'loading' } | { kind: 'legacy' } | { kind: 'list' } | { kin
  * support answers with a Comment on the Issue (the way your team already works), and the answer shows here. Sites
  * without Issues use the single-thread chat instead.
  */
-export function SupportInbox({ onClose }: { onClose: () => void }) {
+export function SupportInbox({ onClose, initialThread }: { onClose: () => void; initialThread?: string }) {
   const cfg = getConfig();
   const t = useTheme();
   const s = useMemo(() => styles(t), [t]);
-  const [view, setView] = useState<View_>({ kind: 'loading' });
+  const [view, setView] = useState<View_>(initialThread ? { kind: 'thread', id: initialThread, subject: '' } : { kind: 'loading' });
   const [threads, setThreads] = useState<ThreadSummary[]>([]);
   const [seen, setSeen] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
@@ -103,6 +104,7 @@ function ThreadView({ id, subject, onBack, onClose }: { id: string; subject: str
   const s = useMemo(() => styles(t), [t]);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [status, setStatus] = useState('');
+  const [title, setTitle] = useState(subject);
   const [draft, setDraft] = useState('');
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
@@ -113,6 +115,7 @@ function ThreadView({ id, subject, onBack, onClose }: { id: string; subject: str
     try {
       const r = await fetchThread(id);
       setStatus(r.thread.status);
+      if (r.thread.subject) setTitle(r.thread.subject);
       setMessages((cur) => mergeMessages(cur, r.messages));
       const lastStaff = [...r.messages].reverse().find((m) => m.from_staff);
       if (lastStaff) void markSeen(id, lastStaff.sent_at);
@@ -150,7 +153,7 @@ function ThreadView({ id, subject, onBack, onClose }: { id: string; subject: str
 
   const closed = status === 'Closed';
   return (
-    <Sheet title={subject} tall onClose={onClose}>
+    <Sheet title={title || 'Conversation'} tall onClose={onClose}>
       <Pressable accessibilityRole="button" onPress={onBack} style={{ paddingBottom: spacing.sm }}>
         <Text style={s.link}>‹ All conversations{status ? ` · ${status}` : ''}</Text>
       </Pressable>
@@ -193,6 +196,7 @@ function NewMessage({ onBack, onClose, onCreated }: { onBack: () => void; onClos
   const cfg = getConfig();
   const auth = cfg.useAuth();
   const t = useTheme();
+  const { showDialog } = ui();
   const s = useMemo(() => styles(t), [t]);
   const [subject, setSubject] = useState('');
   const [text, setText] = useState('');
@@ -210,6 +214,7 @@ function NewMessage({ onBack, onClose, onCreated }: { onBack: () => void; onClos
       const diagnostics = await collectDiagnostics({ user: auth.user, fullName: auth.fullName, server: auth.instanceUrl ?? cfg.site });
       const r = await submitReport({ subject, description: text || subject, diagnostics, screenshot: null });
       onCreated(r.report, subject.trim());
+      void offerReplyNotifications(showDialog);
     } catch (err) {
       setError(cfg.errorMessage ? cfg.errorMessage(err) : "Couldn't send. Check your connection and try again.");
     } finally {

@@ -9,7 +9,7 @@ import { rememberScreen } from './screenshot';
  */
 
 export type SupportSheet = 'report' | 'chat';
-type Listener = (sheet: SupportSheet) => void;
+type Listener = (sheet: SupportSheet, thread?: string) => void;
 
 const listeners = new Set<Listener>();
 
@@ -37,9 +37,9 @@ export async function openReportProblem(): Promise<boolean> {
   return true;
 }
 
-/** Open "Chat with support" from anywhere. False when chat is off or the kit is not mounted. */
-export function openSupportChat(): boolean {
+/** Open "Chat with support" from anywhere, optionally straight into one conversation (an Issue id). False when chat is off or the kit is not mounted. */
+export function openSupportChat(thread?: string): boolean {
   if (!enabled('chat') || listeners.size === 0) return false;
-  listeners.forEach((l) => l('chat'));
+  listeners.forEach((l) => l('chat', thread));
   return true;
 }

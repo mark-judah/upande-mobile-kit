@@ -14,6 +14,7 @@ import { KIT_VERSION } from '../kit-version';
 import { fontSize, spacing, ui } from '../ui/primitives';
 import { VaultRow } from '../vault/VaultRow';
 import { cacheCredentials } from '../session/recovery';
+import { unregisterToken } from '../push';
 import { SupportCard } from '../support/SupportCard';
 import { captureApiCall, captureException, flushNow, isMonitoringEnabled, monitoringReady, setMonitoringEnabled } from '../monitor';
 
@@ -125,6 +126,7 @@ export function SettingsScreen({
         style: 'destructive',
         onPress: async () => {
           cacheCredentials(null); // a signed-out phone must not sign itself back in
+          await unregisterToken(); // and must stop receiving the signed-out person's replies
           await auth.logout?.();
           goToLogin();
         },
@@ -140,6 +142,7 @@ export function SettingsScreen({
         style: 'destructive',
         onPress: async () => {
           cacheCredentials(null);
+          await unregisterToken();
           await auth.forgetDevice?.();
           goToLogin();
         },
