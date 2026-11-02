@@ -14,6 +14,7 @@
  *   --ota-base-url URL       where JS bundles are served (default: GitHub Pages of --repo)
  *   --apk-name my_app        APK file-name stem (default: snake_case of --name)
  *   --branch main            release branch (default: current branch)
+ *   --update-workflow        rewrite ONLY .github/workflows/release.yml to this kit's version (keeps app-name, apk-name, branch)
  *   --settings-route /path   rarely needed: another path for the kit's Settings page (default /mobile-kit/settings)
  *   --devices-route /path    rarely needed: another path for the kit's Devices page (default /mobile-kit/devices)
  *   --biometric host|kit     who owns the biometric lock (default: detected; `host` when the app already locks itself)
@@ -27,6 +28,7 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { buildAdapters, detectHost, detectHostBiometric, STAND_IN_EFFECT } from './adapters.mjs';
 import { backupNote, createBackup } from './backup.mjs';
+import { updateWorkflow } from './workflow.mjs';
 import { ensureGitignore, gitignoreNote } from './gitignore.mjs';
 import { BACKEND_APP, BACKEND_REPO_URL, isPlaceholder, KIT_REPO, NATIVE_MODULES, WORKFLOW_REF } from './constants.mjs';
 import { FIX_COMMAND, METRO_NOTE } from './native-modules.mjs';
@@ -168,6 +170,8 @@ export function run(argv, root = process.cwd(), { exec, lastSteps = true, wiring
     const i = argv.indexOf(`--${n}`);
     return i === -1 ? undefined : argv[i + 1];
   };
+  // Only the release workflow, brought up to the installed kit version (nothing else is read or written).
+  if (argv.includes('--update-workflow')) return updateWorkflow(root, argv);
   const force = argv.includes('--force');
   const log = [];
   const appJsonPath = join(root, 'app.json');

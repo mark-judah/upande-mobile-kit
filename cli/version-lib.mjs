@@ -80,9 +80,88 @@ export function versionCodeFor(version, { versionCodeBase = 0 } = {}) {
   return versionCodeBase + (major * MINOR_LIMIT + minor) * PATCH_LIMIT + patch;
 }
 
-/** 'ota' when the new version stays on the runtime the installed APKs have; otherwise 'apk'. */
-export function releaseKind(currentRuntime, version, offsets) {
+/**
+ * 'ota' when the new version stays on the runtime the installed APKs have; otherwise 'apk'.
+ * `forceApk` (the `--apk` flag, or an `[apk]` marker in a commit) builds an APK for this release even
+ * though the runtime stays the same. A `currentRuntime` that is not a plain string (an Expo policy object, or
+ * nothing at all) is unknown, so it never equals the new runtime and the release is an APK.
+ */
+export function releaseKind(currentRuntime, version, offsets, forceApk = false) {
+  if (forceApk) return 'apk';
   return currentRuntime === runtimeVersionFor(version, offsets) ? 'ota' : 'apk';
+}
+
+/**
+ * Markers a commit message can carry (subject or body, any case, square brackets, whole token):
+ *
+ *   [apk] / [build-apk]     attach an APK to THIS release; the version is a normal patch and the runtime is unchanged
+ *   [native] / [runtime]    native code changed: minor bump = new runtime, and an APK
+ *   [major]                 major bump = new runtime, and an APK
+ *   [ota] / [skip-apk]      in the NEWEST commit only: cancels any [apk] marker of the release range (including its own)
+ *
+ * Commits are newest first (git log order). Returns the short hash of the newest commit that carries each marker.
+ */
+const MARKER = /\[(apk|build-apk|native|runtime|major|ota|skip-apk)\]/gi;
+export function scanMarkers(commits) {
+  const found = { apk: null, native: null, major: null, otaCancelled: false };
+  commits.forEach((c, i) => {
+    const tokens = new Set([...`${c.subject ?? ''}\n${c.body ?? ''}`.matchAll(MARKER)].map((m) => m[1].toLowerCase()));
+    const short = String(c.hash ?? '').slice(0, 7);
+    if ((tokens.has('apk') || tokens.has('build-apk')) && !found.apk) found.apk = short;
+    if ((tokens.has('native') || tokens.has('runtime')) && !found.native) found.native = short;
+    if (tokens.has('major') && !found.major) found.major = short;
+    if (i === 0 && (tokens.has('ota') || tokens.has('skip-apk'))) found.otaCancelled = true;
+  });
+  if (found.otaCancelled) found.apk = null;
+  return found;
+}
+
+/**
+ * One decision, with the reason in words. `bumpFlag` is what was asked for (`auto`, `patch`, `minor`, `major` or
+ * nothing); an explicit minor/major or a `--set` version always wins over commit markers.
+ */
+export function decideRelease({ bumpFlag, setTo, apkFlag, commits, sdkChanged, currentRuntime, offsets, currentVersion }) {
+  const asked = bumpFlag ?? 'auto';
+  if (!['auto', 'patch', 'minor', 'major'].includes(asked)) throw new Error(`--bump must be auto, patch, minor or major (got "${asked}").`);
+  const marks = scanMarkers(commits);
+  const why = [];
+  let bump = 'patch';
+  if (setTo) {
+    why.push(`--set ${setTo}`);
+  } else if (asked === 'minor' || asked === 'major') {
+    bump = asked;
+    why.push(`--bump ${asked}`);
+  } else if (marks.major) {
+    bump = 'major';
+    why.push(`commit ${marks.major} contains [major]`);
+  } else if (marks.native) {
+    bump = 'minor';
+    why.push(`commit ${marks.native} contains [native]/[runtime]`);
+  } else if (sdkChanged) {
+    bump = 'minor';
+    why.push('the Expo SDK changed, and a bundle from another SDK cannot go over the air');
+  }
+  const forceApk = Boolean(apkFlag || marks.apk);
+  if (apkFlag) why.push('--apk');
+  else if (marks.apk) why.push(`commit ${marks.apk} contains [apk]`);
+  if (marks.otaCancelled && !setTo && asked !== 'minor' && asked !== 'major') why.push('newest commit has [ota]: no APK was requested by markers');
+  const policyRuntime = typeof currentRuntime !== 'string';
+  return { bump, forceApk, why, marks, policyRuntime, asked, currentVersion, offsets };
+}
+
+/** The sentence `version` prints and `--json` carries as `reason`. */
+export function releaseReason({ kind, runtime, currentRuntime, decision }) {
+  const parts = [...decision.why];
+  if (decision.policyRuntime) {
+    parts.push('runtimeVersion in app.json was a policy object (or missing); this release sets a plain x.y runtime, so it needs an APK');
+  } else if (kind === 'apk' && currentRuntime !== runtime) {
+    parts.push(`the runtime changes from ${currentRuntime} to ${runtime}`);
+  } else if (kind === 'apk') {
+    parts.push(`an APK is built on the unchanged runtime ${runtime}; the OTA bundle is published too`);
+  } else {
+    parts.push(`a patch release keeps runtime ${runtime}, so it ships over the air (no APK)`);
+  }
+  return parts.join('; ');
 }
 
 const HEADER = /^(?<type>[a-z]+)(?:\((?<scope>[^)]+)\))?(?<breaking>!)?:\s*(?<description>.+)$/i;

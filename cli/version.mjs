@@ -5,7 +5,8 @@
  *   upande-mobile-kit version                 # print the next version (dry run)
  *   upande-mobile-kit version --json          # machine-readable, for CI outputs
  *   upande-mobile-kit version --apply         # write app.json + package.json
- *   upande-mobile-kit version --bump minor    # skip ahead to the next minor/major
+ *   upande-mobile-kit version --bump minor    # skip ahead to the next minor/major (auto|patch|minor|major)
+ *   upande-mobile-kit version --apk           # build an APK for this release too (same runtime)
  *   upande-mobile-kit version --set 1.0.0     # start a numbering line at a version
  *   upande-mobile-kit version --keep-version --notes   # release notes for the current version
  *
@@ -17,12 +18,14 @@ import { execFileSync } from 'node:child_process';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import {
+  decideRelease,
   nextVersion,
   offsetsFrom,
   parseCommit,
   parseVersion,
   releaseKind,
   releaseNotes,
+  releaseReason,
   runtimeVersionFor,
   versionCodeFor,
 } from './version-lib.mjs';
@@ -73,14 +76,24 @@ export function run(argv, root = process.cwd()) {
   const expoSdk = Number(String(pkg.dependencies?.expo ?? '').replace(/^[^\d]*/, '').split('.')[0]);
   const runtimeSdk = appConfig.expo.extra?.runtimeSdk;
   const sdkChanged = Number.isFinite(expoSdk) && runtimeSdk != null && runtimeSdk !== expoSdk;
-  const requestedBump = flagValue('bump') ?? 'patch';
-  const bump = sdkChanged && requestedBump === 'patch' ? 'minor' : requestedBump;
-
   const setTo = flagValue('set');
   if (setTo) parseVersion(setTo);
+  const decision = decideRelease({
+    bumpFlag: flagValue('bump'),
+    setTo,
+    apkFlag: hasFlag('apk'),
+    commits,
+    sdkChanged,
+    currentRuntime: appConfig.expo.runtimeVersion,
+    offsets,
+    currentVersion,
+  });
+  const { bump, forceApk } = decision;
   const version = hasFlag('keep-version') ? currentVersion : setTo || nextVersion(currentVersion, bump);
   const versionCode = versionCodeFor(version, offsets);
   const runtimeVersion = runtimeVersionFor(version, offsets);
+  const kind = releaseKind(appConfig.expo.runtimeVersion, version, offsets, forceApk);
+  const reason = releaseReason({ kind, runtime: runtimeVersion, currentRuntime: appConfig.expo.runtimeVersion, decision });
 
   if (hasFlag('apply')) {
     appConfig.expo.version = version;
@@ -108,7 +121,9 @@ export function run(argv, root = process.cwd()) {
         versionCode,
         runtimeVersion,
         currentRuntimeVersion: appConfig.expo.runtimeVersion,
-        release: releaseKind(appConfig.expo.runtimeVersion, version, offsets),
+        release: kind,
+        reason,
+        forceApk,
         bump,
         tag: `v${version}`,
         previousTag: tag,
@@ -121,6 +136,7 @@ export function run(argv, root = process.cwd()) {
   }
   return (
     `${currentVersion} -> ${version} (${bump}, versionCode ${versionCode}, ` +
-    `${commits.length} commit${commits.length === 1 ? '' : 's'} since ${tag ?? 'the beginning'})\n`
+    `${commits.length} commit${commits.length === 1 ? '' : 's'} since ${tag ?? 'the beginning'})\n` +
+    `release: ${kind === 'apk' ? 'APK' : 'OTA'} - ${reason}\n`
   );
 }

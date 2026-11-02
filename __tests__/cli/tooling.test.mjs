@@ -6,6 +6,8 @@ import { join } from 'node:path';
 import { createRequire } from 'node:module';
 import { test } from 'node:test';
 import { check } from '../../cli/doctor.mjs';
+import { KIT_VERSION } from '../../cli/constants.mjs';
+import { renderCaller } from '../../cli/workflow.mjs';
 import { backendPlan, commandLine, defaultOtaBaseUrl, manifestUrl, repoFromRemote, run as realInit, snake } from '../../cli/init.mjs';
 // Plain init now installs the native modules by default. Tests must never run a real `expo install`
 // (network, minutes), so every call gets a recording no-op exec unless the test passes its own.
@@ -51,8 +53,9 @@ test('init scaffolds routes, config stub, workflow, plugin entry and scripts, an
   assert.match(cfg, /site: 'https:\/\/erp\.example\.com'/);
   const wf = readFileSync(join(dir, '.github/workflows/release.yml'), 'utf8');
   assert.match(wf, /branches: \[trunk\]/);
-  assert.match(wf, /uses: acme\/mobile-kit\/\.github\/workflows\/release\.yml@v0/);
-  assert.match(wf, /app-name: "My App", apk-name: my_app/);
+  assert.match(wf, new RegExp(`uses: acme/mobile-kit/\\.github/workflows/release\\.yml@v${KIT_VERSION.replaceAll('.', '\\.')}$`, 'm'));
+  assert.doesNotMatch(wf, /release\.yml@v0\s/); // pinned to the kit version, never a floating tag
+  assert.match(wf, /app-name: "My App"\n\s+apk-name: my_app\n/);
   assert.doesNotMatch(wf, /__/);
   const expo = JSON.parse(readFileSync(join(dir, 'app.json'), 'utf8')).expo;
   assert.deepEqual(expo.plugins, ['@upande/mobile-kit']);
@@ -112,7 +115,7 @@ test('doctor flags an unconfigured app and passes a configured one', async () =>
   mkdirSync(join(dir, 'app/mobile-kit'), { recursive: true });
   writeFileSync(join(dir, 'app/mobile-kit/settings.tsx'), "export { SettingsRoute as default } from '@upande/mobile-kit';");
   writeFileSync(join(dir, 'app/mobile-kit/devices.tsx'), "export { DevicesRoute as default } from '@upande/mobile-kit';");
-  writeFileSync(join(dir, '.github/workflows/release.yml'), '');
+  writeFileSync(join(dir, '.github/workflows/release.yml'), renderCaller({ appName: 'My App', apkName: 'my_app' }));
   const good = await check(dir);
   assert.deepEqual(good.filter((r) => r.level !== 'ok'), []);
 });

@@ -7,7 +7,7 @@
  *   --dev-site http://localhost:8000   and the development site (unreachable is only a warning)
  *
  * It is a superset of `doctor`: routes (files, collisions, a link to them),
- * provider and config import order, config completeness (stand-ins, who owns
+ * provider and config order, config completeness (stand-ins, who owns
  * the biometric lock), native modules, and whether a phone can reach the sites.
  */
 import { existsSync, readFileSync } from 'node:fs';
@@ -18,6 +18,7 @@ import { describeMissing, FIX_COMMAND, hostOwnsBiometric, moduleStatus, skipFor 
 import { configuredRoutes, findCollisions, findLegacyKitFiles, isKitFile, linkedFrom, rootLayoutFile, routeFileFor } from './routes.mjs';
 import { probeSite, reachabilityChecks, sitesFrom } from './site-checks.mjs';
 import { parseVersion } from './version-lib.mjs';
+import { workflowChecks } from './workflow.mjs';
 
 const PKG = '@upande/mobile-kit';
 /** @returns {Promise<{ level: 'ok'|'warn'|'fail', msg: string, fix?: string }[]>} */
@@ -132,6 +133,10 @@ export async function verify(root = process.cwd(), { site, devSite, fetchImpl = 
   if (statuses.every((st) => st.inPackageJson && st.installed)) add('ok', 'all native modules are installed (new ones only work after a new native build, not an OTA update).');
 
   /* sites */
+  // The release workflow: pinned to a kit version, and able to build an APK by hand.
+  if (!existsSync(join(root, '.github/workflows/release.yml'))) add('warn', '.github/workflows/release.yml is missing: pushes will not release (no OTA, no APK)', 'npx upande-mobile-kit init');
+  for (const w of workflowChecks(root)) add(w.level, w.msg, w.fix);
+
   const sites = sitesFrom(root, { site, devSite }, expo);
   if (!sites.production) add('warn', 'no site configured to check', 'pass --site https://your.site or run npx upande-mobile-kit init');
   out.push(...reachabilityChecks(expo, sites));

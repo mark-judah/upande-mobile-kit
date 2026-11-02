@@ -5,7 +5,7 @@ name: Mobile release (reusable)
 #
 #   jobs:
 #     release:
-#       uses: <owner>/mobile-kit/.github/workflows/release.yml@v0
+#       uses: <owner>/upande-mobile-kit/.github/workflows/release.yml@v<kit version>
 #       with: { app-name: "My App", apk-name: my_app }
 #       secrets: inherit
 #
@@ -16,6 +16,14 @@ name: Mobile release (reusable)
 #                              every installed 1.2 APK on its next launch.
 #   1.x.0  (new runtime)   -> prebuild + Gradle: a signed APK attached to the
 #                              GitHub Release, since native code may have moved.
+#
+# A commit message can ask for more (read by the CLI, not by this file):
+#   [apk]            also build and attach an APK, same runtime (OTA keeps working)
+#   [native]         native code changed: new runtime (minor bump) + APK
+#   [major]          major bump + APK
+#   [ota]            in the newest commit: no APK, even if an older commit said [apk]
+# The `build_apk` input does the same by hand ("Run workflow" > build_apk).
+# The decision and its reason are in the job summary and the release notes.
 #
 # Either way the bump is committed, tagged and given a GitHub Release.
 #
@@ -42,6 +50,11 @@ on:
         required: false
         type: string
         default: ''
+      build_apk:
+        description: Also build and attach an APK for this release (same runtime, OTA keeps working)
+        required: false
+        type: boolean
+        default: false
       node-version:
         required: false
         type: string
@@ -100,13 +113,16 @@ jobs:
       # is what decides between an OTA update and an APK.
       - name: Plan and apply the version bump
         id: version
+        env:
+          BUMP: ${{ inputs.bump }}
+          SET_VERSION: ${{ inputs.set_version }}
+          BUILD_APK: ${{ inputs.build_apk }}
         run: |
           set -euo pipefail
-          bump="${{ inputs.bump }}"
-          [ "$bump" = "auto" ] && bump=patch
-          set_version="${{ inputs.set_version }}"
-          to=(--bump "$bump")
-          [ -n "$set_version" ] && to=(--set "$set_version")
+          # `auto` is passed through: the CLI reads the commit messages ([apk], [native], ...) and decides.
+          to=(--bump "${BUMP:-auto}")
+          [ -n "$SET_VERSION" ] && to=(--set "$SET_VERSION")
+          [ "$BUILD_APK" = "true" ] && to+=(--apk)
           npx upande-mobile-kit version --json "${to[@]}" > version.json
           cat version.json
           npx upande-mobile-kit version --apply "${to[@]}"
@@ -116,10 +132,24 @@ jobs:
             echo "version_code=$(jq -r .versionCode version.json)"
             echo "runtime=$(jq -r .runtimeVersion version.json)"
             echo "release=$(jq -r .release version.json)"
+            echo "reason=$(jq -r .reason version.json)"
           } >> "$GITHUB_OUTPUT"
 
       - name: Generate release notes
-        run: npx upande-mobile-kit version --keep-version --notes > RELEASE_NOTES.md
+        env:
+          RELEASE: ${{ steps.version.outputs.release }}
+          REASON: ${{ steps.version.outputs.reason }}
+        run: |
+          set -euo pipefail
+          npx upande-mobile-kit version --keep-version --notes > RELEASE_NOTES.md
+          kind=OTA
+          [ "$RELEASE" = "apk" ] && kind=APK
+          printf '\n**Release type:** %s (reason: %s)\n' "$kind" "$REASON" >> RELEASE_NOTES.md
+          {
+            echo "### Release type: $kind"
+            echo
+            echo "$REASON"
+          } >> "$GITHUB_STEP_SUMMARY"
 
       # ── 1.2.x: over-the-air update ──────────────────────────────────────────
       #

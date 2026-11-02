@@ -71,7 +71,7 @@ The wizard in step 2 can do this for a bench on your own machine. Production is 
 
 ```bash
 cd my-expo-app
-npm install github:mark-judah/upande-mobile-kit#v0.7.3
+npm install github:mark-judah/upande-mobile-kit#v0.8.0
 npx upande-mobile-kit init
 ```
 
@@ -131,7 +131,7 @@ The push starts the release workflow, which creates the `gh-pages` branch. When 
 
 ### 4. Make the first release an APK
 
-No phone has the kit yet, so the first release must be a native build. In your repo: **Actions > Release > Run workflow**, set `bump` to `minor`, and run it. Download the APK from the new GitHub Release, install it once, and from then on every update reaches the phone by itself. Details in [Releasing](#releasing).
+No phone has the kit yet, so the first release must be a native build. In your repo: **Actions > Release > Run workflow**, tick **build_apk** (or set `bump` to `minor`), and run it. Download the APK from the new GitHub Release, install it once, and from then on every update reaches the phone by itself. Details in [Releasing](#releasing).
 
 ## GitHub setup
 
@@ -179,24 +179,31 @@ Do this once per app repository.
 
 Merging (pushing) to your release branch starts the workflow, except for changes that only touch `*.md` files or `docs/`. It:
 
-1. bumps the version one step and decides OTA or APK;
-2. exports the JavaScript bundle and publishes it to the `gh-pages` branch under `ota/`;
-3. if the runtime changed, runs `expo prebuild` and Gradle to build a signed (or debug-signed) APK;
+1. bumps the version one step and decides OTA or APK (from the version, the commit messages and the inputs; see below). The decision and its reason are written to the run summary and to the GitHub Release;
+2. exports the JavaScript bundle and publishes it to the `gh-pages` branch under `ota/`, for every release;
+3. if the release is an APK, runs `expo prebuild` and Gradle to build a signed (or debug-signed) APK;
 4. commits `chore(release): <version> [skip ci]`, tags `v<version>`, and creates the GitHub Release.
 
 A release takes about 14 minutes when it builds an APK. The workflow times out after 45 minutes, and runs queue behind each other. Do not start a commit message with `chore(release):`; the workflow ignores those to avoid loops.
 
-### OTA or APK
+### Why a patch release has no APK
 
-Versions are `x.y.z`. The runtime is `x.y`. An OTA bundle can only reach phones that have the same runtime.
+This is by design, not an error. Versions are `x.y.z` and the runtime is `x.y`. An OTA bundle can only reach phones that have the same runtime, and a normal merge only moves `z` (`1.2.7` to `1.2.8`), so the native part is unchanged and there is nothing new to build. Only the JavaScript is shipped, and phones with a 1.2 build get it the next time the app opens. The GitHub Release is titled "(OTA)" and has no APK file. A release gets an APK when the runtime changes, or when you ask for one with a commit marker or the `build_apk` input.
+
+### OTA or APK
 
 | What you do | Version | Runtime | Result |
 |---|---|---|---|
-| Merge as usual | `1.2.3` to `1.2.4` | same | OTA. Phones with a 1.2 build get it the next time the app opens. |
-| Merge when the patch counter wraps | `1.2.99` to `1.3.0` | new | APK |
-| Run the workflow with `bump: minor` or `major` | `1.2.4` to `1.3.0` / `2.0.0` | new | APK |
+| Merge as usual (`fix: ...`) | `1.2.7` to `1.2.8` | same | OTA only |
+| Merge with `[apk]` in a commit message | `1.2.7` to `1.2.8` | same | OTA **and** an APK attached to the release. Phones on the old APK keep getting OTA updates. |
+| Merge with `[native]` or `[runtime]` | `1.2.7` to `1.3.0` | new | APK |
+| Merge with `[major]` | `1.2.7` to `2.0.0` | new | APK |
+| Run the workflow with `build_apk` ticked | `1.2.7` to `1.2.8` | same | OTA and an APK |
+| Run the workflow with `bump: minor` or `major` | `1.2.7` to `1.3.0` / `2.0.0` | new | APK |
 | Run the workflow with `set_version` | the version you give | new if `x.y` changes | APK if the runtime changed, else OTA |
+| Merge when the patch counter wraps | `1.2.99` to `1.3.0` | new | APK |
 | Upgrade the Expo SDK in `package.json` | next minor | new | APK. A bundle for another SDK would crash old builds, so the kit forces a minor bump. |
+| `runtimeVersion` in `app.json` is not a plain `x.y` string (an Expo policy object, or missing) | next patch | set to `x.y` | APK, once. The kit cannot tell which runtime the installed builds have, so it writes a plain one and builds an APK. |
 
 The patch counts 0 to 99 and the minor 0 to 49, then they roll over. `versionCode` is derived from the version, so it always increases. If the app already has older builds out, set `expo.extra.mobileKit` in `app.json` before the first release, so the new APK installs over the old one and no bundle reaches an incompatible phone:
 
@@ -206,29 +213,33 @@ The patch counts 0 to 99 and the minor 0 to 49, then they roll over. `versionCod
 
 Both default to 0. If you set `runtimeMajorBase`, set the same value as `upande_mobile_runtime_major_base` in the Frappe site's `site_config.json`.
 
-### The first release is an APK
-
-`init` sets `runtimeVersion` from your current version (`1.0.0` gives `1.0`). The push in Quick start step 3 is a patch bump, so it only publishes OTA. Run the workflow by hand with `bump: minor` to build the first APK (it becomes `1.1.0`, runtime `1.1`).
-
-### Running the workflow by hand
-
-**Actions > Release > Run workflow.** Pick the branch, then:
-
-| Input | Values |
-|---|---|
-| `bump` | `auto` (same as `patch`), `patch`, `minor`, `major` |
-| `set_version` | an exact version such as `2.0.0`; when set, `bump` is ignored |
-
-### Where things end up
-
-- **GitHub Releases:** one per version, tagged `v<version>`. APK releases attach `<apk-name>_v<version>.apk` and a fixed-name `<apk-name>.apk`. OTA releases are titled "(OTA)" and have no file. The newest APK is always at `https://github.com/<owner>/<repo>/releases/latest/download/<apk-name>.apk`.
-- **`gh-pages` branch:** `ota/android/<runtime>/manifest.json`, the bundle and its assets. Older runtimes are kept.
-- **The workflow run summary:** runtime, `versionCode`, the APK link and whether it was signed with your key or the debug key.
-- **Workflow artifacts:** the APK is also kept as an artifact for 90 days, even if a later step fails.
-
 ### Commit messages
 
-Commit messages do not decide OTA or APK. The version does. They only shape the release notes, which become the body of the GitHub Release. Use the conventional form `type(scope): description`:
+The kit reads the commit messages since the last `v*` tag (subject and body, any letter case) for these markers, written in square brackets:
+
+| Marker | Effect |
+|---|---|
+| `[apk]` or `[build-apk]` | Build and attach an APK to this release. The version is a normal patch and the runtime is unchanged, so OTA keeps working for existing phones. |
+| `[native]` or `[runtime]` | Native code changed: a minor bump, which is a new runtime, and an APK. |
+| `[major]` | A major bump, a new runtime, and an APK. |
+| `[ota]` or `[skip-apk]` | Only in the **newest** commit: cancels any `[apk]` marker in this release range (including its own). It does not cancel `[native]` or `[major]`. |
+
+Examples:
+
+```bash
+git commit -m "fix: correct the gate count"                    # OTA only
+git commit -m "fix: correct the gate count [apk]"              # OTA and an APK
+git commit -m "feat: scan IDs with the camera [native]"        # new runtime and an APK
+git commit -m "feat!: new login [major]"                       # 2.0.0 and an APK
+```
+
+Rules:
+
+- A marker must be a whole bracketed token. `[apkish]` or the word apk in a sentence does nothing.
+- `--bump minor`, `--bump major` and `--set` (workflow inputs) always win over markers. `--bump auto`, `patch`, or nothing leave the decision to the markers.
+- An Expo SDK upgrade still forces a minor bump and an APK, whatever the markers say.
+
+The conventional commit type (`type(scope): description`) does not change the release. It only sorts the release notes:
 
 | Type | Section in the notes |
 |---|---|
@@ -243,6 +254,54 @@ Commit messages do not decide OTA or APK. The version does. They only shape the 
 | anything else | Other |
 
 A `!` after the type (`feat!: ...`) or a `BREAKING CHANGE:` line in the body puts the commit under "BREAKING CHANGES". That marks it in the notes only. It does not change the version.
+
+### Preview a release before you push
+
+```bash
+npx upande-mobile-kit version
+```
+
+Prints the next version, the release type and the reason, without changing anything:
+
+```text
+1.2.7 -> 1.2.8 (patch, versionCode 5208, 2 commits since v1.2.7)
+release: APK - commit 93b887d contains [apk]; an APK is built on the unchanged runtime 1.2; the OTA bundle is published too
+```
+
+It reads your local commits. Commit first (a local commit is enough); do not run it with `--apply`, which writes the version and would be bumped a second time by the workflow. `--json` prints the same decision as `release`, `reason` and `forceApk`.
+
+### The first release is an APK
+
+`init` sets `runtimeVersion` from your current version (`1.0.0` gives `1.0`). The push in Quick start step 3 is a patch bump, so it only publishes OTA. For the first APK, run the workflow by hand with **build_apk** ticked (it stays `1.0.1`, runtime `1.0`), or with `bump: minor` (it becomes `1.1.0`, runtime `1.1`), or put `[apk]` in a commit message.
+
+### Running the workflow by hand
+
+**Actions > Release > Run workflow.** Pick the branch, then:
+
+| Input | Values |
+|---|---|
+| `bump` | `auto` (the commit markers decide; patch if there are none), `patch`, `minor`, `major` |
+| `set_version` | an exact version such as `2.0.0`; when set, `bump` is ignored |
+| `build_apk` | tick it to also build and attach an APK (same runtime, OTA keeps working) |
+
+It builds what is on GitHub, not your local files: push your changes first.
+
+### Keeping the workflow up to date
+
+`init` writes `.github/workflows/release.yml` pinned to the kit version that wrote it, for example `...release.yml@v0.8.0`. A floating tag would never carry workflow fixes to apps that already have the file, so the pin is exact. After you update the kit, bring the workflow up to date:
+
+```bash
+npx upande-mobile-kit init --update-workflow
+```
+
+It rewrites only that file, keeps your app name, APK name and branch, saves the old file under `.upande-mobile-kit/backup/` (skip with `--no-backup`), and does nothing if it is already current. Commit and push it. `verify` and `doctor` warn when the workflow is on a floating ref such as `@v0`, is older than the installed kit, or has no `build_apk` input.
+
+### Where things end up
+
+- **GitHub Releases:** one per version, tagged `v<version>`. APK releases attach `<apk-name>_v<version>.apk` and a fixed-name `<apk-name>.apk`. OTA releases are titled "(OTA)" and have no file. The newest APK is always at `https://github.com/<owner>/<repo>/releases/latest/download/<apk-name>.apk`.
+- **`gh-pages` branch:** `ota/android/<runtime>/manifest.json`, the bundle and its assets. Older runtimes are kept.
+- **The workflow run summary and the GitHub Release:** the release type and the reason (for example `Release type: APK (reason: commit abc1234 contains [apk])`), runtime, `versionCode`, the APK link and whether it was signed with your key or the debug key.
+- **Workflow artifacts:** the APK is also kept as an artifact for 90 days, even if a later step fails.
 
 ### When a release fails
 
@@ -450,7 +509,7 @@ Run all commands from the app root (the folder with `app.json`).
 | `npx upande-mobile-kit fix [--dry-run] [--align] [--yes]` | Installs missing native modules with `expo install`. `--dry-run` only prints the command. `--align` also re-pins installed ones to your SDK's versions. Never prompts. |
 | `npx upande-mobile-kit verify [--site URL] [--dev-site URL]` | Self-test. One line per check (`✓` fine, `!` look at it, `✗` broken), each with a fix. Exits 1 on any `✗`. Checks `app.json`, routes, the provider, the config import, wiring, native modules, that the sites answer, and cleartext. |
 | `npx upande-mobile-kit doctor [--site URL] [--dev-site URL]` | The quick version of `verify`. |
-| `npx upande-mobile-kit version [--apply] [--json] [--notes] [--bump patch\|minor\|major] [--set X.Y.Z] [--keep-version]` | Prints the next version (dry run), or with `--apply` writes it to `app.json` and `package.json`. Used by the workflow. |
+| `npx upande-mobile-kit version [--apply] [--json] [--notes] [--bump auto\|patch\|minor\|major] [--set X.Y.Z] [--apk] [--keep-version]` | Prints the next version, the release type (OTA or APK) and the reason (a dry run), or with `--apply` writes the version to `app.json` and `package.json`. `--apk` builds an APK for this release on the same runtime. Used by the workflow. |
 | `npx upande-mobile-kit publish-ota [--out dir]` | Builds the OTA bundle into `./ota`. Used by the workflow. |
 
 `init` flags. With no value flags it runs the wizard. Any value flag runs the plain, non-interactive version.
@@ -469,6 +528,7 @@ Run all commands from the app root (the folder with `app.json`).
 | `--biometric host\|kit` | Who owns the biometric lock (default: detected) |
 | `--backend-repo URL`, `--kit-repo owner/repo` | For forks of the backend or the kit |
 | `--no-adapters` | Do not look for your auth store, API client and storage |
+| `--update-workflow` | Rewrite only `.github/workflows/release.yml` to the installed kit's version, keeping app name, APK name and branch |
 | `--no-backup` | Do not copy changed files into `.upande-mobile-kit/backup/` |
 | `--force` | Overwrite files that exist |
 | `--settings-route PATH`, `--devices-route PATH` | Rarely needed: other paths for the kit's pages |
@@ -493,7 +553,8 @@ npx upande-mobile-kit init --yes --site https://your.site --dev-site http://loca
 | OTA arrives but the app does not restart into it | The bundle finished downloading more than 20 s after opening | It applies on the next opening. Raise `otaOpenWindowMs` if you want |
 | No APK offer | The repo's releases are private, the latest APK is not newer, the check ran in the last 24 hours, or the user set downloads to Off or the phone is not on Wi-Fi | Check the Releases page; use Settings > Check for updates |
 | The APK will not install over the old one | Signed with a different key (debug versus your key), or a lower `versionCode` | Sign with one key. Set `versionCodeBase` above the old build's `versionCode` |
-| First release published no APK | The version stayed on the same runtime | Run the workflow with `bump: minor` |
+| A release has no APK | A patch release (same runtime) is OTA only, by design | Put `[apk]` in a commit message, tick `build_apk` when you run the workflow by hand, or use `bump: minor`. See [Releasing](#releasing) |
+| `Run workflow` has no `build_apk` box | The workflow file is from an older kit | `npx upande-mobile-kit init --update-workflow`, then commit and push |
 | The workflow fails at `npm ci` | `package-lock.json` is missing or out of date | Run `npm install` and commit the lockfile |
 | The workflow fails pushing the version commit | The release branch is protected | Allow `github-actions[bot]` to push to it |
 | Events do not reach the portal | Not signed in, monitoring is off in Settings or on the Mobile App record, or the app is not registered | Sign in; check `enable_monitoring`; run `register_app` |
@@ -518,12 +579,12 @@ The kit is installed from this repository, so a release is a git tag:
 npm run typecheck && npm test
 npm run check:pack            # fails on stray hostnames, emails or credential-shaped text
 # bump "version" in package.json and commit, then:
-git tag v0.7.2 && git push origin v0.7.2
+git tag v0.8.0 && git push origin v0.8.0
 ```
 
 - `check:pack` also reads `KIT_DENY_PATTERNS` (regexes separated by `;`), so names that must never ship do not have to be written into this repo.
 - The package is `"private": true` so it cannot be published to npm by accident. Remove that line and add `publishConfig` to publish there.
-- The workflow `init` writes into apps calls this repo's shared workflow at the ref in `WORKFLOW_REF` in `cli/constants.mjs`, which is `v0`. Move the `v0` tag to the latest release whenever `.github/workflows/release.yml` changes, or apps keep running the old workflow: `git tag -f v0 <tag> && git push -f origin v0`.
+- The workflow `init` writes into apps calls this repo's shared workflow pinned to the tag with the kit's own version (`WORKFLOW_REF` in `cli/constants.mjs` is `v` plus the version in `package.json`). So every release must be tagged with exactly `v<version>`, and nothing needs moving. Apps pick up workflow changes with `npx upande-mobile-kit init --update-workflow`.
 - Forks change `KIT_REPO` and `BACKEND_REPO_URL` in `cli/constants.mjs` and the URLs in `package.json`.
 
 ## License

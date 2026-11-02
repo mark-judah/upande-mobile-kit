@@ -343,6 +343,9 @@ export async function main(argv, root = process.cwd(), opts = {}) {
   const noInstall = argv.includes('--no-install');
   const flagged = VALUE_FLAGS.some((f) => argv.includes(`--${f}`));
 
+  // Only the release workflow: no questions, nothing else touched.
+  if (argv.includes('--update-workflow')) return plainInit(argv, root, {});
+
   // Plain init, exactly as before: any value flag without --yes.
   if (flagged && !yes) {
     const exec = opts.exec ?? (opts.io ? (a, o) => opts.io.exec(a, o) : undefined);

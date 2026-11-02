@@ -1,19 +1,45 @@
 name: Release
 
+# Calls the shared release workflow of @upande/mobile-kit (pinned to the kit version that wrote this file).
+# Every push to the branch below is a release. A commit message can ask for more:
+#   [apk]     also build and attach an APK (same runtime, OTA keeps working)
+#   [native]  native code changed: new runtime and an APK
+#   [major]   major version and an APK
+#   [ota]     in the newest commit: no APK
+# By hand: Actions > Release > Run workflow (tick build_apk, or set bump to minor).
 on:
   push:
     branches: [main]
     paths-ignore: ['**/*.md', 'docs/**']
   workflow_dispatch:
     inputs:
-      bump: { description: auto | patch | minor | major, type: string, default: auto }
-      set_version: { description: Exact version (starts a new release line), type: string, default: '' }
+      bump:
+        description: auto | patch | minor | major
+        type: string
+        default: auto
+      set_version:
+        description: Exact version (starts a new release line)
+        type: string
+        default: ''
+      build_apk:
+        description: Also build and attach an APK (same runtime, OTA keeps working)
+        type: boolean
+        default: false
 
-concurrency: { group: release, cancel-in-progress: false }
-permissions: { contents: write }
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+permissions:
+  contents: write
 
 jobs:
   release:
     uses: __KIT_REPO__/.github/workflows/release.yml@__WORKFLOW_REF__
-    with: { app-name: "__APP_NAME__", apk-name: __APK_NAME__, bump: "${{ inputs.bump || 'auto' }}", set_version: "${{ inputs.set_version || '' }}" }
+    with:
+      app-name: "__APP_NAME__"
+      apk-name: __APK_NAME__
+      bump: ${{ inputs.bump || 'auto' }}
+      set_version: ${{ inputs.set_version || '' }}
+      build_apk: ${{ inputs.build_apk || false }}
     secrets: inherit
