@@ -13,23 +13,13 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { detectHostBiometric, STAND_IN_EFFECT } from './adapters.mjs';
-import { KIT_REPO, NATIVE_MODULES } from './constants.mjs';
+import { KIT_REPO } from './constants.mjs';
+import { describeMissing, FIX_COMMAND, hostOwnsBiometric, moduleStatus, skipFor } from './native-modules.mjs';
 import { configuredRoutes, findCollisions, findLegacyKitFiles, isKitFile, linkedFrom, rootLayoutFile, routeFileFor } from './routes.mjs';
 import { probeSite, reachabilityChecks, sitesFrom } from './site-checks.mjs';
 import { parseVersion } from './version-lib.mjs';
 
 const PKG = '@upande/mobile-kit';
-const REQUIRED = ['expo-updates', 'expo-constants', 'expo-file-system', 'expo-router'];
-const OPTIONAL_EFFECT = {
-  'expo-intent-launcher': 'APKs open in the browser instead of the installer',
-  'expo-local-authentication': 'the biometric switch is unavailable',
-  'expo-network': 'background APK downloads never start and crash reports lack the connection type',
-  '@react-native-async-storage/async-storage': 'kit settings are kept in memory and lost on restart',
-  'expo-device': 'Battery/device info unavailable: crash reports lack the device model, OS build and memory (rebuild required after installing)',
-  'expo-battery': 'Battery info unavailable: crash reports lack battery level and low-power mode (rebuild required after installing)',
-  'expo-localization': 'crash reports fall back to Intl for locale and time zone',
-};
-
 /** @returns {Promise<{ level: 'ok'|'warn'|'fail', msg: string, fix?: string }[]>} */
 export async function verify(root = process.cwd(), { site, devSite, fetchImpl = globalThis.fetch } = {}) {
   const out = [];
@@ -128,15 +118,18 @@ export async function verify(root = process.cwd(), { site, devSite, fetchImpl = 
   }
   const deps = { ...pkg.devDependencies, ...pkg.dependencies };
   if (!deps[PKG]) add('fail', `${PKG} is not in package.json`, `npm install github:${KIT_REPO}#<tag>`);
-  for (const d of REQUIRED) {
-    if (!deps[d]) add('fail', `${d} is missing from package.json (the kit needs it)`, `npx expo install ${d}  (then rebuild the native app)`);
-    else if (!existsSync(join(root, 'node_modules', d))) add('fail', `${d} is in package.json but not installed`, 'npm install');
+  // expo-router is the host's own; the kit's native modules come from one list and one fix command.
+  if (!deps['expo-router']) add('fail', 'expo-router is missing from package.json (the kit needs it)', 'npx expo install expo-router');
+  else if (!existsSync(join(root, 'node_modules', 'expo-router'))) add('fail', 'expo-router is in package.json but not installed', 'npm install');
+  const hostLock = hostOwnsBiometric(root);
+  const statuses = moduleStatus(root);
+  for (const st of statuses) {
+    if (st.inPackageJson && st.installed) continue;
+    // A host that owns the lock may not use expo-local-authentication at all through the kit: only a warning.
+    const level = hostLock && skipFor({ biometricHost: true }).includes(st.pkg) ? 'warn' : 'fail';
+    add(level, describeMissing(st), `${FIX_COMMAND}  (then make a new native build: an OTA update cannot add native modules)`);
   }
-  for (const d of NATIVE_MODULES.filter((m) => !REQUIRED.includes(m))) {
-    if (!deps[d]) add('warn', `${d} is not installed: ${OPTIONAL_EFFECT[d]}`, `npx expo install ${d}, then make a new native build`);
-    else if (!existsSync(join(root, 'node_modules', d))) add('fail', `${d} is in package.json but not installed`, 'npm install');
-  }
-  if (NATIVE_MODULES.every((m) => deps[m])) add('ok', 'all native modules are in package.json (new ones only work after a new native build, not an OTA update).');
+  if (statuses.every((st) => st.inPackageJson && st.installed)) add('ok', 'all native modules are installed (new ones only work after a new native build, not an OTA update).');
 
   /* sites */
   const sites = sitesFrom(root, { site, devSite }, expo);

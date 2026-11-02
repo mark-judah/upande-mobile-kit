@@ -9,17 +9,5 @@ export const WORKFLOW_REF = 'v0';
 
 export const isPlaceholder = (value) => /REPLACE-ME/.test(String(value ?? ''));
 
-/** Native modules the kit uses. Newly added ones need a new native build, which an OTA update cannot deliver. */
-export const NATIVE_MODULES = [
-  'expo-updates',
-  'expo-constants',
-  'expo-file-system',
-  'expo-intent-launcher',
-  'expo-local-authentication',
-  'expo-network',
-  // device details on crash reports (model, battery, locale)
-  'expo-device',
-  'expo-battery',
-  'expo-localization',
-  '@react-native-async-storage/async-storage',
-];
+/** Native modules the kit uses (one list, shared/native-modules.json). Newly added ones need a new native build, which an OTA update cannot deliver. */
+export { NAMES as NATIVE_MODULES } from './native-modules.mjs';

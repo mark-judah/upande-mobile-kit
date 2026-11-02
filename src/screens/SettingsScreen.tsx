@@ -3,7 +3,7 @@ import { Alert, Pressable, StyleSheet, Text, TouchableOpacity, View } from 'reac
 import { router } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { CONFIG_GAP_MESSAGES, DEFAULT_DEVICES_ROUTE, getConfig, getConfigGaps, type KitTheme } from '../config';
-import { missingModules } from '../modules';
+import { describeMissing, missingAdvice, missingModules } from '../modules';
 import { registerKitScreen } from '../route-guard';
 import * as Biometric from '../biometric';
 import { ApkUpdateSection } from '../updates/ApkUpdateSection';
@@ -219,12 +219,12 @@ export function SettingsScreen({
         <Card title="Not available in this build">
           {missing.map((m) => (
             <View key={m.pkg} style={s.missingRow}>
-              <Text style={s.rowLabel}>{`${m.disables}: rebuild required`}</Text>
+              <Text style={s.rowLabel}>{describeMissing(m)}</Text>
               <Text style={s.rowHint}>{m.pkg}</Text>
             </View>
           ))}
           <Text style={[s.rowHint, { marginTop: spacing.sm }]}>
-            An update delivered over the air cannot add native modules. Install the packages above and make a new native build (APK or dev client).
+            {missingAdvice(missing)}
           </Text>
         </Card>
       ) : null}

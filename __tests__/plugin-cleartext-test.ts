@@ -113,7 +113,7 @@ describe('withCleartext (the plugin)', () => {
     expect(String(warn.mock.calls.flat().join('\n'))).toContain('will be blocked');
   });
   it('the combined plugin wires it in and still applies the updates URL', () => {
-    const c = withKit({ name: 'w', runtimeVersion: '1.0' }, { manifestUrl: 'http://10.0.0.7:8000/m?app=A', sites: { development: 'http://10.0.0.7:8000' } });
+    const c = withKit({ name: 'w', runtimeVersion: '1.0' }, { manifestUrl: 'http://10.0.0.7:8000/m?app=A', sites: { development: 'http://10.0.0.7:8000' }, strict: false });
     expect(c.updates.url).toBe('http://10.0.0.7:8000/m?app=A');
     expect(c.mods.android.manifest).toBeDefined();
     expect(c.mods.ios.infoPlist).toBeDefined();

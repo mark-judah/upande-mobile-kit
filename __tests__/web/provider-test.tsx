@@ -148,3 +148,40 @@ describe('foreground report debounce', () => {
     expect(foreground()).toHaveLength(2);
   });
 });
+
+describe('missing native modules (dev): ONE console line with the command', () => {
+  const lines = () => warn.mock.calls.filter((c) => String(c[0]).includes('native module') && String(c[0]).includes('unavailable in this build'));
+
+  it('names every missing module once and ends with the fix command, however often it re-renders', () => {
+    setup();
+    mount(<MobileKitProvider><div>one</div></MobileKitProvider>);
+    mount(<MobileKitProvider><div>two</div></MobileKitProvider>);
+    advance(1000);
+    expect(lines()).toHaveLength(1);
+    const text = String(lines()[0][0]);
+    expect(text).toMatch(/\[@upande\/mobile-kit\] \d+ native modules unavailable in this build: /);
+    expect(text).toContain('expo-battery');
+    expect(text).toMatch(/\((not installed|rebuild required)\)/);
+    expect(text.trimEnd().endsWith('Run: npx upande-mobile-kit fix')).toBe(true);
+    expect(text.split('\n')).toHaveLength(1);
+  });
+
+  it('leaves out expo-local-authentication when the host owns the lock', () => {
+    setup({ biometric: 'host' });
+    mount(<MobileKitProvider><div /></MobileKitProvider>);
+    expect(String(lines()[0][0])).not.toContain('expo-local-authentication');
+  });
+
+  it('says nothing in a release build', () => {
+    const g = globalThis as { __DEV__?: boolean };
+    const was = g.__DEV__;
+    g.__DEV__ = false;
+    try {
+      setup();
+      mount(<MobileKitProvider><div /></MobileKitProvider>);
+      expect(lines()).toHaveLength(0);
+    } finally {
+      g.__DEV__ = was;
+    }
+  });
+});

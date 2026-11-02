@@ -1,6 +1,6 @@
 {
   "name": "@upande/mobile-kit",
-  "version": "0.6.0",
+  "version": "0.7.0",
   "description": "Drop-in Settings page for Expo apps: OTA + APK updates from GitHub, biometric unlock, device register and version info, backed by a Frappe app.",
   "license": "MIT",
   "private": true,
@@ -11,6 +11,7 @@
     "bin",
     "cli",
     "plugins",
+    "shared",
     "templates",
     "app.plugin.js",
     ".github/workflows/release.yml",
@@ -47,6 +48,15 @@
       "optional": true
     },
     "@react-native-async-storage/async-storage": {
+      "optional": true
+    },
+    "expo-updates": {
+      "optional": true
+    },
+    "expo-constants": {
+      "optional": true
+    },
+    "expo-file-system": {
       "optional": true
     }
   },

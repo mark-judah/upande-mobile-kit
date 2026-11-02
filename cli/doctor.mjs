@@ -7,6 +7,7 @@
  */
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { describeMissing, FIX_COMMAND, hostOwnsBiometric, moduleStatus, skipFor } from './native-modules.mjs';
 import { probeSite } from './site-checks.mjs';
 import { configuredRoutes, findCollisions, findLegacyKitFiles, isKitFile, rootLayoutFile, routeFileFor } from './routes.mjs';
 import { parseVersion } from './version-lib.mjs';
@@ -54,20 +55,12 @@ export async function check(root = process.cwd(), { site, devSite, fetchImpl = g
   const deps = { ...pkg.dependencies, ...pkg.devDependencies };
   if (deps[PKG]) add('ok', `${PKG} ${deps[PKG]} installed.`);
   else add('fail', `${PKG} is not in package.json.`);
-  for (const d of ['expo-updates', 'expo-constants', 'expo-file-system', 'expo-router']) {
-    if (!deps[d]) add('fail', `${d} is missing from package.json (peer dependency of the kit).`);
-  }
-  const degraded = {
-    'expo-intent-launcher': 'APKs open in the browser instead of the installer',
-    'expo-local-authentication': 'biometric unlock is unavailable',
-    'expo-network': 'background APK downloads never start (the network type is unknown), and crash reports leave out the connection type',
-    '@react-native-async-storage/async-storage': 'kit settings are kept in memory and lost on restart',
-    'expo-device': 'crash reports leave out the device model, OS build and memory',
-    'expo-battery': 'crash reports leave out the battery level and low-power mode',
-    'expo-localization': 'crash reports fall back to Intl for locale and time zone',
-  };
-  for (const [d, effect] of Object.entries(degraded)) {
-    if (!deps[d]) add('warn', `${d} is not installed: ${effect}.`);
+  if (!deps['expo-router']) add('fail', 'expo-router is missing from package.json.');
+  const hostLock = hostOwnsBiometric(root);
+  for (const st of moduleStatus(root)) {
+    if (st.inPackageJson && st.installed) continue;
+    const level = hostLock && skipFor({ biometricHost: true }).includes(st.pkg) ? 'warn' : 'fail';
+    add(level, `${describeMissing(st)}. Fix: ${FIX_COMMAND}`);
   }
 
   const kitTs = read('src/mobile-kit.ts');

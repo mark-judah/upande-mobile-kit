@@ -1,0 +1,12 @@
+[
+  {"pkg": "expo-updates", "native": [], "runtime": false, "disables": "Over-the-air updates unavailable"},
+  {"pkg": "expo-constants", "native": [], "runtime": false, "disables": "App version and build info unavailable"},
+  {"pkg": "expo-file-system", "native": ["FileSystem", "ExponentFileSystem"], "runtime": true, "disables": "Free storage and APK downloads unavailable"},
+  {"pkg": "expo-intent-launcher", "native": ["ExpoIntentLauncher"], "runtime": true, "disables": "In-app APK install unavailable"},
+  {"pkg": "expo-local-authentication", "native": ["ExpoLocalAuthentication"], "runtime": true, "disables": "Biometric unavailable", "skipWhenHostBiometric": true},
+  {"pkg": "expo-network", "native": ["ExpoNetwork"], "runtime": true, "disables": "Network type and background APK downloads unavailable"},
+  {"pkg": "expo-device", "native": ["ExpoDevice"], "runtime": true, "disables": "Device model and memory unavailable"},
+  {"pkg": "expo-battery", "native": ["ExpoBattery"], "runtime": true, "disables": "Battery info unavailable"},
+  {"pkg": "expo-localization", "native": ["ExpoLocalization"], "runtime": true, "disables": "Locale and time zone unavailable"},
+  {"pkg": "@react-native-async-storage/async-storage", "native": [], "runtime": true, "disables": "Settings not kept between launches"}
+]

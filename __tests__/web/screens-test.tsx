@@ -27,6 +27,21 @@ jest.mock('expo-file-system/legacy', () => ({ documentDirectory: 'file:///f/', g
 // Which native modules this "build" has: none by default; a test can flip them all on.
 const nativeFlags = { all: false };
 jest.mock('expo', () => ({ requireOptionalNativeModule: () => (nativeFlags.all ? {} : null) }));
+// JS side installed, native side absent from this binary -> "rebuild required"
+jest.mock('expo-battery', () => ({}), { virtual: true });
+jest.mock('expo-localization', () => ({}), { virtual: true });
+jest.mock('expo-intent-launcher', () => ({}), { virtual: true });
+jest.mock('expo-local-authentication', () => ({}), { virtual: true });
+jest.mock('expo-network', () => ({}), { virtual: true });
+jest.mock('expo-file-system', () => ({}), { virtual: true });
+// not installed at all -> "run npx upande-mobile-kit fix"
+jest.mock(
+  'expo-device',
+  () => {
+    throw new Error("Cannot find module 'expo-device'");
+  },
+  { virtual: true },
+);
 jest.mock('@react-native-async-storage/async-storage', () => ({ getItem: jest.fn(), setItem: jest.fn(), removeItem: jest.fn() }), { virtual: true });
 
 import { SettingsScreen } from '../../src/screens/SettingsScreen';
@@ -99,9 +114,13 @@ describe('what this build lacks (item: say what needs a native rebuild)', () => 
     expect(html).toContain('Not available in this build');
     expect(html).toContain('Battery info unavailable: rebuild required');
     expect(html).toContain('expo-battery');
-    expect(html).toContain('Device model and memory unavailable: rebuild required');
+    // a package that is not in the app at all gets the exact command, not "rebuild"
+    expect(html).toContain('Device model and memory unavailable: not installed, run npx upande-mobile-kit fix');
+    expect(html).not.toContain('Device model and memory unavailable: rebuild required');
     expect(html).toContain('Biometric unavailable: rebuild required');
     expect(html).toContain('new native build');
+    expect(html).toContain('&quot;not installed&quot;: run npx upande-mobile-kit fix');
+    expect(html).toContain('&quot;rebuild required&quot;: the package is installed');
   });
   it('is quiet when every module is present', () => {
     nativeFlags.all = true;

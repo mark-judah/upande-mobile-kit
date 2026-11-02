@@ -17,6 +17,8 @@ import { dirname, join, resolve } from 'node:path';
 import { buildAdapters, detectHost, detectHostBiometric, inferMode } from './adapters.mjs';
 import { backupNote, createBackup } from './backup.mjs';
 import { NATIVE_MODULES } from './constants.mjs';
+import { detectPackageManager, FIX_COMMAND, missingModules, skipFor } from './native-modules.mjs';
+import { installNativeModules } from './native-install.mjs';
 import { openBlock, rebuildBlock, repoFromRemote, run as plainInit, wiringReport } from './init.mjs';
 import {
   appDir,
@@ -203,13 +205,7 @@ export const manualLayoutEdit = () =>
 
 /* ───────────────────────────── detection helpers ───────────────────────────── */
 
-export function detectPackageManager(root) {
-  if (existsSync(join(root, 'pnpm-lock.yaml'))) return 'pnpm';
-  if (existsSync(join(root, 'yarn.lock'))) return 'yarn';
-  if (existsSync(join(root, 'bun.lockb')) || existsSync(join(root, 'bun.lock'))) return 'bun';
-  if (existsSync(join(root, 'package-lock.json'))) return 'npm';
-  return null;
-}
+export { detectPackageManager };
 
 const isBench = (dir) => existsSync(join(dir, 'sites', 'apps.txt'));
 const isDir = (p) => {
@@ -349,7 +345,8 @@ export async function main(argv, root = process.cwd(), opts = {}) {
 
   // Plain init, exactly as before: any value flag without --yes.
   if (flagged && !yes) {
-    const text = plainInit(argv.filter((a) => a !== '--no-install'), root, opts.exec ? { exec: opts.exec } : {});
+    const exec = opts.exec ?? (opts.io ? (a, o) => opts.io.exec(a, o) : undefined);
+    const text = plainInit(argv, root, exec ? { exec } : {});
     return text;
   }
 
@@ -516,7 +513,7 @@ async function wizard({ argv, root, flag, yes, noInstall, io, doctorFn }) {
       } else benchSite = await io.ask('Bench site name', host(devSite || site));
     } else benchSite = preferred ?? sites[0] ?? host(devSite || site);
   }
-  const installNative = prompting ? await io.confirm('Install the native modules (expo install) now?', saved.installNative ?? true) : saved.installNative ?? true;
+  // The native modules are not optional: the app is incomplete without them, so there is no question to answer.
 
   // The app's own session, API client and storage: used when found, asked about when not.
   const cfgKept = existsSync(join(root, 'src/mobile-kit.ts')) && !argv.includes('--force');
@@ -553,16 +550,16 @@ async function wizard({ argv, root, flag, yes, noInstall, io, doctorFn }) {
   }
   const adapters = buildAdapters({ root, ...wire });
 
-  const pm = detectPackageManager(root);
-  const expoInstall = ['npx', 'expo', 'install', ...(pm ? [`--${pm}`] : []), ...NATIVE_MODULES];
   const doBackend = installBackend && !noInstall;
-  const doNative = installNative && !noInstall;
+  const doNative = !noInstall;
   const backup = createBackup(root, !argv.includes('--no-backup'));
 
   // What will change, before anything does.
   const depsBefore = readDeps(root);
-  const toAdd = NATIVE_MODULES.filter((m) => !depsBefore[m]);
-  const present = NATIVE_MODULES.filter((m) => depsBefore[m]);
+  // Only what is really missing is installed (idempotent); one that is in package.json but not in node_modules is re-installed and may be re-pinned.
+  const missingNow = missingModules(root, { skip: skipFor({ biometricHost: biometric === 'host' }) }).map((m) => m.pkg);
+  const toAdd = missingNow.filter((m) => !depsBefore[m]);
+  const present = missingNow.filter((m) => depsBefore[m]);
   const layoutRel = ['tsx', 'jsx', 'js'].map((e) => `${appDir(root)}/_layout.${e}`).find((r) => existsSync(join(root, r)));
   const fileLine = (rel, what) => `  • ${rel}  (${existsSync(join(root, rel)) ? what[1] : what[0]})`;
 
@@ -578,7 +575,7 @@ async function wizard({ argv, root, flag, yes, noInstall, io, doctorFn }) {
   say(layoutRel ? `  • ${layoutRel}  (edit: import the kit config, wrap in <MobileKitProvider>; the original is backed up to ${backup.relDir}/)` : '  • no root layout found: you add <MobileKitProvider> by hand');
   say(`  • ${SAVED_FILE}  (remembered answers)`);
   say('  Dependencies');
-  say(doNative ? `  • expo install adds: ${toAdd.length ? toAdd.join(', ') : '(nothing new)'}` : `  • not installing${noInstall ? ' (--no-install)' : ''}; still missing: ${toAdd.join(', ') || 'nothing'}`);
+  say(doNative ? `  • native modules (always installed, SDK-aware via expo install): ${missingNow.length ? 'expo install adds: ' + (toAdd.join(', ') || '(nothing new)') : 'all present, nothing to install'}` : `  • NOT installing the native modules (--no-install); the app is incomplete until you run ${FIX_COMMAND}. Missing: ${missingNow.join(', ') || 'nothing'}`);
   if (doNative && present.length) say(`  • expo install may CHANGE the versions of: ${present.map((m) => `${m} ${depsBefore[m]}`).join(', ')} (the diff is printed afterwards)`);
   say(`  Sites: production ${site}${devSite ? `, dev ${devSite}` : ''}`);
   say(`  Pages: Settings at ${routes.settings}, Devices at ${routes.devices}`);
@@ -636,14 +633,9 @@ async function wizard({ argv, root, flag, yes, noInstall, io, doctorFn }) {
     else log.push(`note   ${layoutRel} was not recognised, so it was left alone. Add this yourself:\n${manualLayoutEdit()}`);
   } else log.push('note   no app/_layout file found. Wrap your root component in <MobileKitProvider>:\n' + manualLayoutEdit());
 
-  if (doNative) {
-    try {
-      io.exec(expoInstall, { cwd: root });
-      log.push('run    npx expo install … (native modules)');
-    } catch (e) {
-      log.push(`note   the native modules did not install (${String(e.message).split('\n')[0]}). Run: ${expoInstall.join(' ')}`);
-    }
-  } else log.push(`next   ${expoInstall.join(' ')}`);
+  // Same step, same words, as the plain flag-driven init: installs what is missing; --no-install or a failure is a loud "incomplete".
+  const native = installNativeModules(root, { exec: (a, o) => io.exec(a, o), noInstall, biometric });
+  log.push('', ...native.lines, '');
 
   // What `expo install` really changed.
   const depsAfter = readDeps(root);
@@ -664,7 +656,6 @@ async function wizard({ argv, root, flag, yes, noInstall, io, doctorFn }) {
     installBackend,
     bench: installBackend ? bench : saved.bench,
     benchSite: installBackend ? benchSite : saved.benchSite,
-    installNative,
     authFile: wire.auth && !detectHost(root).auth ? wire.auth.file : saved.authFile,
     authExport: wire.auth && !detectHost(root).auth ? wire.auth.exportName : saved.authExport,
   });
@@ -686,7 +677,7 @@ async function wizard({ argv, root, flag, yes, noInstall, io, doctorFn }) {
   const block = rebuildBlock({
     added,
     changed: changed.filter(([k]) => NATIVE_MODULES.includes(k)),
-    pending: doNative ? [] : toAdd,
+    pending: native.ok ? [] : missingNow,
     pluginAdded: !plugins(expoBefore).includes('@upande/mobile-kit') && plugins(expoAfter).includes('@upande/mobile-kit'),
     updatesChanged: expoBefore.updates?.url !== expoAfter.updates?.url || expoBefore.runtimeVersion !== expoAfter.runtimeVersion,
   });
@@ -694,5 +685,6 @@ async function wizard({ argv, root, flag, yes, noInstall, io, doctorFn }) {
   log.push(openBlock({ root, route: routes.settings, file: settingsFile }));
   if (backup.files.length) log.push('', backupNote(backup));
   log.push('', 'Next:', `  • npx upande-mobile-kit verify   (checks routes, provider, wiring, native modules, sites and cleartext, with a fix per failure)`, '  • enable GitHub Pages for the gh-pages branch of ' + repo + ' once the first release creates it');
+  if (!native.ok) log.push('', native.lines[native.lines.length - 1]); // last thing printed, so it cannot be missed
   return `${log.join('\n')}\n`;
 }

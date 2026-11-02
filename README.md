@@ -1,6 +1,6 @@
 # @upande/mobile-kit
 
-> Distributed from GitHub, not npm: no npm account needed. Install with `npm install github:mark-judah/upande-mobile-kit#v0.6.0` (pin a release tag).
+> Distributed from GitHub, not npm: no npm account needed. Install with `npm install github:mark-judah/upande-mobile-kit#v0.7.0` (pin a release tag).
 
 A drop-in **Settings page for Expo apps**, with the update plumbing behind it:
 
@@ -17,7 +17,7 @@ The server side is a small Frappe app (`upande_mobile`): it keeps the device reg
 
 ```bash
 # 1. add it to your Expo app (from GitHub; pin a release tag)
-npm install github:mark-judah/upande-mobile-kit#v0.6.0
+npm install github:mark-judah/upande-mobile-kit#v0.7.0
 
 # 2. run the wizard: it asks a few questions, then does the rest
 npx upande-mobile-kit init
@@ -38,11 +38,10 @@ Choose 1-2 [1]:
 Which bench site?
   1) localhost
 Choose 1-1 [1]:
-Install the native modules (expo install) now? [Y/n]:
 File exporting your auth store hook, e.g. src/store/auth.ts (blank = skip): src/store/auth.ts   ← only when it could not find it
 
 This will: write the pages, config and release workflow; wrap the root layout in <MobileKitProvider>;
-run expo install; install the backend on /home/you/frappe-bench (site localhost); run doctor …
+install the native modules (always: no question); install the backend on /home/you/frappe-bench (site localhost); run doctor …
 Apply? [Y/n]:
 ```
 
@@ -87,15 +86,18 @@ What `init` does:
 
 It never overwrites an existing file unless you pass `--force`, Options: `--dev-site`, `--bench-site`, `--backend-repo`, `--kit-repo`, `--name`, `--repo`, `--ota-base-url`, `--apk-name`, `--branch`, `--settings-route`, `--devices-route`, `--biometric host|kit`, `--no-adapters`, `--no-backup`.
 
-The wizard installs these native modules for you; to do it by hand:
+### Native modules: installed for you, repaired with one command
 
-```bash
-npx expo install expo-updates expo-constants expo-file-system expo-intent-launcher \
-  expo-local-authentication expo-network expo-device expo-battery expo-localization \
-  @react-native-async-storage/async-storage
-```
+The kit needs ten native modules (`expo-updates`, `expo-constants`, `expo-file-system`, `expo-intent-launcher`, `expo-local-authentication`, `expo-network`, `expo-device`, `expo-battery`, `expo-localization`, `@react-native-async-storage/async-storage`). You never install them by hand:
 
-`expo-intent-launcher`, `expo-local-authentication`, `expo-network`, `expo-device`, `expo-battery`, `expo-localization` and AsyncStorage are optional: without them the kit degrades (APKs open in the browser, no biometric switch, downloads never start on an unknown network, settings are kept in memory, crash reports lose the device model, battery and locale).
+- **Every `init` path installs the missing ones** with Expo's own SDK-aware `npx expo install` (the wizard, `--yes`, and the flag-driven `init --site ...` alike), unless you pass `--no-install`. Re-running `init` installs whatever is still missing, even when every file already exists.
+- **`--no-install`, or an install that fails, ends with a loud `✗ SETUP INCOMPLETE` block** naming the one command that finishes the job. It is never just a quiet "last steps" line.
+- **`npx upande-mobile-kit fix`** installs and repairs them at any time: it finds the modules missing from `package.json` or `node_modules`, runs `npx expo install <them>` with your package manager (from the lockfile), prints what changed, re-checks, and ends with the "needs a NEW NATIVE BUILD" note when something was added. `fix --dry-run` only prints the command; `fix --align` also re-pins the modules you already have to the versions your SDK expects. It never prompts (it runs with `CI=1`) and never hangs (a time limit). With everything in place it changes nothing.
+- **`verify` and `doctor` treat a missing module as an error** (✗), with `npx upande-mobile-kit fix` as the fix. The one exception is `expo-local-authentication` when your app owns the biometric lock (`biometric: 'host'`): that stays a warning.
+- **The build stops too.** The config plugin checks the modules from your **project** root when `expo prebuild`, EAS or CI runs it, and throws with the list and the command if any is missing, so you never ship an app with features silently off. Plugin props: `"strict": false` turns the failure into a warning, and `"biometric": "host"` leaves out `expo-local-authentication` (a `biometric: 'host'` in `src/mobile-kit.ts` is honoured too, so the prop is rarely needed). Example: `["@upande/mobile-kit", { "strict": false }]`.
+- **In the running app**, Settings shows a "Not available in this build" card and development builds log **one** console line. It tells two cases apart: *"not installed, run `npx upande-mobile-kit fix`"* (the package is not in the app) and *"rebuild required"* (the package is installed, but this binary was built without its native side). Crash reports carry the list as `missing_modules`.
+
+**Why these are not `peerDependencies`.** Only `expo install` knows which version fits your Expo SDK: `expo-file-system` is `~19.0` on SDK 54 and `~58.0` on SDK 58. A required peer would be auto-installed by npm at the **highest** version it allows, which is the wrong one for most apps and breaks at runtime, a worse failure than a missing module. So the kit lists them only as *optional* peers (never auto-installed) and leaves the install to `expo install`, driven by `init`, `fix` and the build-time check above. For the same reason it does not install anything from a `postinstall` script: a nested package-manager run from inside another install is fragile.
 
 ## Where the pages live
 
@@ -300,7 +302,7 @@ git tag v0.1.0 && git push origin v0.1.0
 git tag -f v0 && git push -f origin v0      # callers' `uses: <owner>/upande-mobile-kit/…@v0` resolves to this
 ```
 
-Users then run `npm install github:mark-judah/upande-mobile-kit#v0.6.0`. To update, they change the tag. Bump `version` in `package.json` before each tag so it matches.
+Users then run `npm install github:mark-judah/upande-mobile-kit#v0.7.0`. To update, they change the tag. Bump `version` in `package.json` before each tag so it matches.
 
 Notes: a GitHub install has no registry listing, download counts or integrity record beyond the git commit, so pin a tag (or a commit hash), never a branch. `npx upande-mobile-kit …` works after the install because the command is linked into `node_modules/.bin`.
 

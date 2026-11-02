@@ -6,7 +6,12 @@ import { join } from 'node:path';
 import { createRequire } from 'node:module';
 import { test } from 'node:test';
 import { check } from '../../cli/doctor.mjs';
-import { backendPlan, commandLine, defaultOtaBaseUrl, manifestUrl, repoFromRemote, run as init, snake } from '../../cli/init.mjs';
+import { backendPlan, commandLine, defaultOtaBaseUrl, manifestUrl, repoFromRemote, run as realInit, snake } from '../../cli/init.mjs';
+// Plain init now installs the native modules by default. Tests must never run a real `expo install`
+// (network, minutes), so every call gets a recording no-op exec unless the test passes its own.
+const nativeCalls = [];
+const init = (argv, root, opts = {}) => realInit(argv, root, { exec: (a, o) => { nativeCalls.push({ argv: a, cwd: o?.cwd }); }, ...opts });
+
 import { denyPatternsFromEnv, scanText } from '../../cli/check-shipped.mjs';
 
 const require = createRequire(import.meta.url);
@@ -95,6 +100,10 @@ test('doctor flags an unconfigured app and passes a configured one', async () =>
   });
   const dev = { '@upande/mobile-kit': '^0.1.0', 'expo-updates': '*', 'expo-constants': '*', 'expo-file-system': '*', 'expo-router': '*', 'expo-intent-launcher': '*', 'expo-local-authentication': '*', 'expo-network': '*', 'expo-device': '*', 'expo-battery': '*', 'expo-localization': '*', '@react-native-async-storage/async-storage': '*' };
   writeFileSync(join(dir, 'package.json'), JSON.stringify({ name: 'x', dependencies: dev }));
+  for (const m of Object.keys(dev)) {
+    mkdirSync(join(dir, 'node_modules', m), { recursive: true });
+    writeFileSync(join(dir, 'node_modules', m, 'package.json'), JSON.stringify({ name: m, version: '1.0.0' }));
+  }
   mkdirSync(join(dir, 'src'));
   mkdirSync(join(dir, 'app'));
   mkdirSync(join(dir, '.github/workflows'), { recursive: true });
@@ -228,7 +237,8 @@ test('init --bench runs the plan in order, stops on a failed register, and refus
   const out = init(['--repo', 'acme/my-app', '--site', 'https://erp.example.com', '--bench', bench, '--backend-repo', 'https://github.com/acme/upande_mobile.git'], dir, {
     exec: (argv) => { ran.push(argv.slice(0, 5).join(' ')); },
   });
-  assert.deepEqual(ran.map((r) => r.split(' ').slice(1, 4).join(' ')), ['get-app https://github.com/acme/upande_mobile.git', '--site erp.example.com install-app', '--site erp.example.com execute']);
+  // the backend steps, then the native modules (every init path installs them)
+  assert.deepEqual(ran.map((r) => r.split(' ').slice(1, 4).join(' ')), ['get-app https://github.com/acme/upande_mobile.git', '--site erp.example.com install-app', '--site erp.example.com execute', 'expo install expo-updates']);
   assert.match(out, /Backend installed on erp\.example\.com/);
   // register_app is idempotent, so a failure there is real (e.g. a rejected URL) and must stop init
   assert.throws(

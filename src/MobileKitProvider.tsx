@@ -7,6 +7,7 @@ import { createForegroundGate, DEFAULT_FOREGROUND_REPORT_MIN_MS } from './device
 import { watchKitRoute } from './route-guard';
 import { usePathname } from 'expo-router';
 import { KitFab } from './ui/KitFab';
+import { missingModules, missingSummary } from './modules';
 import { addBreadcrumb, MonitorErrorBoundary, setMonitorContext, startMonitor } from './monitor';
 
 /**
@@ -27,12 +28,23 @@ export function MobileKitProvider({ children }: { children: ReactNode }) {
   return (
     <UpdateProvider>
       <DeviceReporter />
+      {__DEV__ ? <MissingModulesWarning /> : null}
       {__DEV__ ? <RouteWatcher /> : null}
       {monitoring ? <MonitorBridge /> : null}
       {monitoring && monitor?.errorBoundary ? <MonitorErrorBoundary>{children}</MonitorErrorBoundary> : children}
       <KitFab />
     </UpdateProvider>
   );
+}
+
+/** Development only: ONE console line naming every native module this build lacks, with the command that fixes it. */
+function MissingModulesWarning() {
+  useEffect(() => {
+    const hostOwnsLock = getConfig().biometric === 'host';
+    const line = missingSummary(missingModules(hostOwnsLock ? ['expo-local-authentication'] : []));
+    if (line) console.warn(line);
+  }, []);
+  return null;
 }
 
 /** Development only: says so when the kit's Settings / Devices route is rendered by some other screen. */

@@ -7,7 +7,12 @@ import { test } from 'node:test';
 import { detectHost, detectHostBiometric, buildAdapters, buildAuthAdapter, importPath } from '../../cli/adapters.mjs';
 import { backupNote, createBackup } from '../../cli/backup.mjs';
 import { NATIVE_MODULES } from '../../cli/constants.mjs';
-import { rebuildBlock, run as init } from '../../cli/init.mjs';
+import { rebuildBlock, run as realInit } from '../../cli/init.mjs';
+// Plain init now installs the native modules by default. Tests must never run a real `expo install`
+// (network, minutes), so every call gets a recording no-op exec unless the test passes its own.
+const nativeCalls = [];
+const init = (argv, root, opts = {}) => realInit(argv, root, { exec: (a, o) => { nativeCalls.push({ argv: a, cwd: o?.cwd }); }, ...opts });
+
 import {
   configuredRoutes,
   DEFAULT_ROUTES,
@@ -219,7 +224,7 @@ test('wizard: a host /settings page is no issue: no route question, pages go und
   withHome(async () => {
     const { root } = makeApp({ 'app/(tabs)/settings.tsx': 'x', 'app/_layout.tsx': ROOT_LAYOUT });
     // production, dev, backend?, native?, auth skip, apply   (no route question at all)
-    const io = scripted(['https://prod.example.com', '', false, false, '', true]);
+    const io = scripted(['https://prod.example.com', '', false, '', true]);
     const out = await main(['--no-install'], root, { io, doctor: doctorStub });
     assert.ok(!io.asked.some((q) => /taken|route|path/i.test(q)), io.asked.join('\n'));
     assert.ok(existsSync(join(root, 'app/mobile-kit/settings.tsx')));
@@ -324,7 +329,7 @@ test('wizard does not touch a Drawer or Tabs: no menu question, the layout only 
     for (const layoutSource of [DRAWER, TABS]) {
       const { root } = makeApp({ 'app/_layout.tsx': layoutSource });
       // production, dev, backend?, native?, auth skip, apply  (no navigator question any more)
-      const io = scripted(['https://prod.example.com', '', false, false, '', true]);
+      const io = scripted(['https://prod.example.com', '', false, '', true]);
       const out = await main(['--no-install'], root, { io, doctor: doctorStub });
       assert.ok(!io.asked.some((q) => /Add a "Settings" entry/.test(q)), io.asked.join('\n'));
       const layout = readFileSync(join(root, 'app/_layout.tsx'), 'utf8');
@@ -477,7 +482,7 @@ test('wizard asks for the auth hook when it cannot find it, validates the answer
   withHome(async () => {
     const { root } = makeApp({ 'src/store/session.ts': STORE.replace('useAuthStore', 'useSession') });
     // production, dev, backend?, native?, [auth file wrong, then right (+ export)], apply
-    const io = scripted(['https://prod.example.com', '', false, false, 'src/nope.ts', 'useSession', 'src/store/session.ts', 'useSession', true]);
+    const io = scripted(['https://prod.example.com', '', false, 'src/nope.ts', 'useSession', 'src/store/session.ts', 'useSession', true]);
     const out = await main(['--no-install'], root, { io, doctor: doctorStub });
     assert.ok(io.asked.some((q) => /File exporting your auth store hook/.test(q)));
     assert.ok(io.said.some((t) => /src\/nope\.ts does not exist/.test(t)));
@@ -526,7 +531,7 @@ test('init writes biometric: \'host\' when the app already locks itself, and say
 test('wizard summary states who owns the biometric lock before anything is written', () =>
   withHome(async () => {
     const { root } = makeApp({ 'src/lock.ts': "import * as L from 'expo-local-authentication';\nexport const x = L.authenticateAsync;" });
-    const io = scripted(['https://prod.example.com', '', false, false, '', false]); // decline at Apply
+    const io = scripted(['https://prod.example.com', '', false, '', false]); // decline at Apply
     await main(['--no-install'], root, { io, doctor: doctorStub });
     assert.ok(io.said.some((t) => /Biometric lock: owned by YOUR app/.test(t)));
     assert.ok(!existsSync(join(root, 'src/mobile-kit.ts')));
@@ -554,7 +559,7 @@ test('wizard ends with the native-build block computed from what expo install re
       p.dependencies['expo-constants'] = '~18.0.0';
       writeFileSync(join(root, 'package.json'), JSON.stringify(p));
     };
-    const io = scripted(['https://prod.example.com', '', false, true, '', true], { exec: (argv) => argv[1] === 'expo' && install() });
+    const io = scripted(['https://prod.example.com', '', false, '', true], { exec: (argv) => argv[1] === 'expo' && install() });
     const out = await main([], root, { io, doctor: doctorStub });
     assert.match(out, /Dependency changes:\n {2}\+ expo-device ~8\.0\.0\n {2}\+ expo-battery ~10\.0\.0\n {2}~ expo-constants: ~17\.0\.0 -> ~18\.0\.0/);
     assert.match(out, /These changes need a NEW NATIVE BUILD \(an OTA update will not deliver them\):/);
@@ -568,13 +573,13 @@ test('wizard ends with the native-build block computed from what expo install re
 
 test('with --no-install the block lists the packages still to install; plain init lists them too', async () => {
   const { root } = makeApp();
-  const out = init(flags, root);
+  const out = init([...flags, '--no-install'], root);
   assert.match(out, /NEW NATIVE BUILD/);
-  assert.match(out, new RegExp(`still to install \\(expo install adds them\\): ${NATIVE_MODULES[0]}`));
+  assert.match(out, new RegExp(`still to install \\(run npx upande-mobile-kit fix\\): ${NATIVE_MODULES[0]}`));
   await withHome(async () => {
     const { root: r2 } = makeApp();
     const text = await main(['--yes', '--no-install', '--site', 'https://prod.example.com'], r2, { io: scripted([], { interactive: false }), doctor: doctorStub });
-    assert.match(text, /packages still to install \(expo install adds them\): expo-updates/);
+    assert.match(text, /packages still to install \(run npx upande-mobile-kit fix\): expo-updates/);
   });
 });
 
@@ -659,6 +664,14 @@ const ALL_DEPS = Object.fromEntries([...NATIVE_MODULES, 'expo-router', '@upande/
 const OK_PROBE = async () => ({ status: 204, headers: { get: (k) => (k === 'expo-protocol-version' ? '1' : null) } });
 
 /** A fully set-up app: init, an installed node_modules, a link to the page, an app-owned lock. */
+/** What `expo install` leaves behind: node_modules/<pkg>/package.json for each package. */
+function installFake(root, pkgs) {
+  for (const m of pkgs) {
+    mkdirSync(join(root, 'node_modules', m), { recursive: true });
+    writeFileSync(join(root, 'node_modules', m, 'package.json'), JSON.stringify({ name: m, version: '1.0.0' }));
+  }
+}
+
 function goodApp({ dev = false } = {}) {
   const { root, w } = makeApp(
     { ...HOST, 'app/_layout.tsx': ROOT_LAYOUT, 'src/lock.ts': "import * as L from 'expo-local-authentication';\nexport const x = L.authenticateAsync;", 'app/home.tsx': "import { router } from 'expo-router';\nrouter.push('/mobile-kit/settings');" },
@@ -666,7 +679,7 @@ function goodApp({ dev = false } = {}) {
   );
   init([...flags, ...(dev ? ['--dev-site', 'http://localhost:8000'] : [])], root);
   w('app/_layout.tsx', readFileSync(join(root, 'app/_layout.tsx'), 'utf8').replace('<Stack />', '<MobileKitProvider><Stack /></MobileKitProvider>').replace("import '../src/mobile-kit';", "import '../src/mobile-kit';"));
-  for (const m of Object.keys(ALL_DEPS)) mkdirSync(join(root, 'node_modules', m), { recursive: true });
+  installFake(root, Object.keys(ALL_DEPS));
   return root;
 }
 
@@ -711,17 +724,19 @@ test('verify: native modules missing from package.json or node_modules are repor
   delete p.dependencies['expo-updates'];
   writeFileSync(join(root, 'package.json'), JSON.stringify(p));
   const res = await verify(root, { fetchImpl: OK_PROBE });
-  const dev = res.find((r) => /expo-device is not installed: Battery\/device info unavailable/.test(r.msg));
-  assert.equal(dev.level, 'warn');
-  assert.match(dev.fix, /npx expo install expo-device, then make a new native build/);
-  const upd = res.find((r) => /expo-updates is missing from package\.json/.test(r.msg));
+  // every missing kit module is an error now (not a warning), with the one fix command
+  const dev = res.find((r) => /expo-device is not installed in this app/.test(r.msg));
+  assert.equal(dev.level, 'fail');
+  assert.match(dev.fix, /npx upande-mobile-kit fix/);
+  assert.match(dev.fix, /new native build/);
+  const upd = res.find((r) => /expo-updates is not installed in this app/.test(r.msg));
   assert.equal(upd.level, 'fail');
-  assert.match(upd.fix, /npx expo install expo-updates/);
+  assert.match(upd.fix, /^npx upande-mobile-kit fix/);
   // listed but not installed
   const root2 = goodApp();
   execFileSync('rm', ['-rf', join(root2, 'node_modules/expo-network')]);
   const res2 = await verify(root2, { fetchImpl: OK_PROBE });
-  assert.ok(res2.some((r) => r.level === 'fail' && /expo-network is in package\.json but not installed/.test(r.msg) && r.fix === 'npm install'));
+  assert.ok(res2.some((r) => r.level === 'fail' && /expo-network is in package\.json but not in node_modules/.test(r.msg) && /npx upande-mobile-kit fix/.test(r.fix)));
 });
 
 test('verify: an http dev site needs cleartext on Android (and an ATS exception on iOS); .local names never resolve from phones', async () => {

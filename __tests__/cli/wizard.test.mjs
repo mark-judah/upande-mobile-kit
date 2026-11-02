@@ -101,8 +101,8 @@ async function withHome(fn) {
 test('wizard happy path: asks the few questions, then writes, wraps the layout, installs and runs doctor', () =>
   withHome(async () => {
     const { root, benchDir } = workspace();
-    // production, dev, install backend?, which bench (1st), which site (default), native?, apply?
-    const io = scripted(['https://prod.example.com/', 'http://localhost:8000', true, 0, undefined, true, '', true]);
+    // production, dev, install backend?, which bench (1st), which site (default), auth file, apply? (no native-modules question: they are always installed)
+    const io = scripted(['https://prod.example.com/', 'http://localhost:8000', true, 0, undefined, '', true]);
     const out = await main([], root, { io, doctor });
 
     assert.deepEqual(io.asked.map((q) => q.split(/[?(:]/)[0].trim()), [
@@ -111,7 +111,6 @@ test('wizard happy path: asks the few questions, then writes, wraps the layout, 
       'Install the Frappe backend',
       'Which bench',
       'Which bench site',
-      'Install the native modules',
       'File exporting your auth store hook, e.g. src/store/auth.ts',
       'Apply',
     ]);
@@ -145,14 +144,13 @@ test('wizard happy path: asks the few questions, then writes, wraps the layout, 
       installBackend: true,
       bench: benchDir,
       benchSite: 'localhost',
-      installNative: true,
     });
   }));
 
 test('running it again is Enter, Enter, Enter: remembered answers are the defaults and nothing is broken', () =>
   withHome(async () => {
     const { root, benchDir } = workspace();
-    await main([], root, { io: scripted(['https://prod.example.com', 'http://localhost:8000', true, 0, undefined, false, '', true]), doctor });
+    await main([], root, { io: scripted(['https://prod.example.com', 'http://localhost:8000', true, 0, undefined, '', true]), doctor });
     const before = readFileSync(join(root, 'src/mobile-kit.ts'), 'utf8');
     const layout = readFileSync(join(root, 'app/_layout.tsx'), 'utf8');
 
@@ -166,14 +164,14 @@ test('running it again is Enter, Enter, Enter: remembered answers are the defaul
     assert.equal(saved.site, 'https://prod.example.com');
     assert.equal(saved.devSite, 'http://localhost:8000');
     assert.equal(saved.bench, benchDir);
-    assert.equal(saved.installNative, false, 'the remembered "no" is the next default');
-    assert.ok(io.ran.every((r) => r.argv[0] !== 'npx'), 'native modules were declined last time');
+    assert.equal(saved.installNative, undefined, 'there is no native-install answer to remember');
+    assert.ok(io.ran.some((r) => r.argv[0] === 'npx' && r.argv[2] === 'install'), 'the native modules are installed on every run');
   }));
 
 test('an invalid URL is explained and asked again', () =>
   withHome(async () => {
     const { root } = workspace({ bench: false });
-    const io = scripted(['not a url', 'ftp://nope', 'https://prod.example.com', '', false, false, '', true]);
+    const io = scripted(['not a url', 'ftp://nope', 'https://prod.example.com', '', false, '', true]);
     await main([], root, { io, doctor });
     assert.equal(io.asked.filter((q) => q.startsWith('Production site URL')).length, 3);
     assert.ok(io.said.some((t) => /not a URL/.test(t)));
@@ -184,7 +182,7 @@ test('an invalid URL is explained and asked again', () =>
 test('the production site is required; blank is refused and asked again', () =>
   withHome(async () => {
     const { root } = workspace({ bench: false });
-    const io = scripted(['', 'https://prod.example.com', '', false, false, '', true]);
+    const io = scripted(['', 'https://prod.example.com', '', false, '', true]);
     await main([], root, { io, doctor });
     assert.equal(io.asked.filter((q) => q.startsWith('Production site URL')).length, 2);
     assert.ok(io.said.some((t) => /required/.test(t)));
@@ -193,7 +191,7 @@ test('the production site is required; blank is refused and asked again', () =>
 test('declining "Apply?" writes nothing at all', () =>
   withHome(async () => {
     const { root } = workspace();
-    const io = scripted(['https://prod.example.com', '', false, false, '', false]);
+    const io = scripted(['https://prod.example.com', '', false, '', false]);
     const out = await main([], root, { io, doctor });
     assert.equal(out, 'Nothing was changed.\n');
     assert.ok(!existsSync(join(root, 'src/mobile-kit.ts')));
@@ -205,7 +203,7 @@ test('declining "Apply?" writes nothing at all', () =>
 test('a missing GitHub origin is asked for, and validated', () =>
   withHome(async () => {
     const { root } = workspace({ origin: '', bench: false });
-    const io = scripted(['nonsense', 'acme/my-app', 'https://prod.example.com', '', false, false, '', true]);
+    const io = scripted(['nonsense', 'acme/my-app', 'https://prod.example.com', '', false, '', true]);
     await main([], root, { io, doctor });
     assert.ok(io.asked[0].startsWith('GitHub repo'));
     assert.ok(io.said.some((t) => /owner\/repo/.test(t)));
@@ -235,7 +233,8 @@ test('--yes asks nothing: flags, remembered answers and detected values do every
     assert.deepEqual(io.ran, []);
     assert.match(readFileSync(join(root, 'src/mobile-kit.ts'), 'utf8'), /development: 'http:\/\/localhost:8000'/);
     assert.match(readFileSync(join(root, 'app/_layout.tsx'), 'utf8'), /<MobileKitProvider>/);
-    assert.match(out, /next   npx expo install/);
+    assert.match(out, /SETUP INCOMPLETE: the native modules were NOT installed \(--no-install\)/);
+    assert.match(out, /Run  npx upande-mobile-kit fix /);
     assert.match(out, /bench get-app/, 'the backend commands are printed, not run');
     assert.equal(loadSaved(root).site, 'https://prod.example.com');
 
@@ -263,17 +262,111 @@ test('--yes with a bench flag installs the backend there; the bench site default
 test('value flags without --yes still run the plain, non-interactive init (no prompts, no layout edit)', () =>
   withHome(async () => {
     const { root } = workspace({ bench: false });
-    const out = await main(['--site', 'https://prod.example.com'], root); // no io: it must not even create one
+    const ran = [];
+    const out = await main(['--site', 'https://prod.example.com'], root, { exec: (a, o) => ran.push({ argv: a, cwd: o?.cwd }) }); // no io: it must not even create one
     assert.match(out, /Last steps/);
     assert.equal(readFileSync(join(root, 'app/_layout.tsx'), 'utf8').includes('<MobileKitProvider>'), false);
     assert.ok(!existsSync(join(root, SAVED_FILE)));
+    assert.equal(ran.length, 1);
+  }));
+
+test('the flag-driven init installs the native modules too, through the exec it is given (it used to only print the command)', () =>
+  withHome(async () => {
+    const { root } = workspace({ bench: false });
+    const ran = [];
+    const out = await main(['--site', 'https://prod.example.com', '--dev-site', 'http://localhost:8000'], root, { exec: (a, o) => ran.push({ argv: a, cwd: o?.cwd }) });
+    assert.equal(ran.length, 1);
+    assert.deepEqual(ran[0].argv, ['npx', 'expo', 'install', ...NATIVE_MODULES]);
+    assert.equal(ran[0].cwd, root);
+    assert.match(out, /run    npx expo install expo-updates .*# native modules/);
+    assert.doesNotMatch(out, /SETUP INCOMPLETE/);
+  }));
+
+test('the flag-driven init with a bench installs the backend there and the native modules in the app, in that order', () =>
+  withHome(async () => {
+    const { root, benchDir } = workspace();
+    const ran = [];
+    await main(['--site', 'https://prod.example.com', '--bench', benchDir, '--backend-repo', 'https://github.com/acme/upande_mobile.git'], root, { exec: (a, o) => ran.push({ argv: a, cwd: o?.cwd }) });
+    const bench = ran.filter((r) => r.argv[0] === 'bench');
+    const native = ran.filter((r) => r.argv[0] === 'npx');
+    assert.equal(bench.length, 3);
+    assert.ok(bench.every((r) => r.cwd === benchDir));
+    assert.equal(native.length, 1);
+    assert.equal(native[0].cwd, root);
+    assert.ok(ran.indexOf(native[0]) > ran.indexOf(bench[2]));
+  }));
+
+test('--no-install leaves a loud SETUP INCOMPLETE block, last in the output, naming the fix command, and runs nothing', () =>
+  withHome(async () => {
+    const { root } = workspace({ bench: false });
+    const ran = [];
+    const out = await main(['--site', 'https://prod.example.com', '--no-install'], root, { exec: (a) => ran.push(a) });
+    assert.deepEqual(ran, []);
+    assert.match(out, /✗ SETUP INCOMPLETE: the native modules were NOT installed \(--no-install\): expo-updates/);
+    assert.match(out, /Run  npx upande-mobile-kit fix /);
+    const lastBlock = out.trimEnd().split('\n').slice(-3);
+    assert.match(lastBlock[0], /SETUP INCOMPLETE/);
+    assert.match(lastBlock[1], /npx upande-mobile-kit fix/);
+  }));
+
+test('a failing install is not quiet either: SETUP INCOMPLETE with the reason, last in the output', () =>
+  withHome(async () => {
+    const { root } = workspace({ bench: false });
+    const out = await main(['--site', 'https://prod.example.com'], root, {
+      exec: (a) => {
+        if (a[0] === 'npx') throw new Error('network down\nmore detail');
+      },
+    });
+    assert.match(out, /✗ SETUP INCOMPLETE: the native install failed \(network down\)/);
+    assert.match(out.trimEnd().split('\n').slice(-3)[1], /Run  npx upande-mobile-kit fix /);
+    assert.ok(!/more detail/.test(out));
+  }));
+
+test('re-running init installs what is missing even though every file already exists (idempotent), and nothing when all is present', () =>
+  withHome(async () => {
+    const { root } = workspace({ bench: false });
+    const first = [];
+    await main(['--site', 'https://prod.example.com'], root, { exec: (a) => first.push(a) });
+    assert.equal(first.length, 1);
+    // files exist now, modules still missing: installed again
+    const second = [];
+    const out = await main(['--site', 'https://prod.example.com'], root, { exec: (a) => second.push(a) });
+    assert.match(out, /skip   src\/mobile-kit\.ts/);
+    assert.equal(second.length, 1);
+    assert.deepEqual(second[0], ['npx', 'expo', 'install', ...NATIVE_MODULES]);
+    // everything installed: no command at all
+    const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'));
+    pkg.dependencies = Object.fromEntries(NATIVE_MODULES.map((m) => [m, '1.0.0']));
+    writeFileSync(join(root, 'package.json'), JSON.stringify(pkg));
+    for (const m of NATIVE_MODULES) {
+      mkdirSync(join(root, 'node_modules', m), { recursive: true });
+      writeFileSync(join(root, 'node_modules', m, 'package.json'), JSON.stringify({ name: m, version: '1.0.0' }));
+    }
+    const third = [];
+    const out3 = await main(['--site', 'https://prod.example.com'], root, { exec: (a) => third.push(a) });
+    assert.deepEqual(third, []);
+    assert.match(out3, /native modules already installed/);
+  }));
+
+test('only the missing modules are installed, and a host that owns the biometric lock is not asked for expo-local-authentication', () =>
+  withHome(async () => {
+    const { root } = workspace({ bench: false });
+    const present = NATIVE_MODULES.filter((m) => m !== 'expo-battery' && m !== 'expo-local-authentication');
+    writeFileSync(join(root, 'package.json'), JSON.stringify({ name: 'my-app', dependencies: Object.fromEntries(present.map((m) => [m, '1.0.0'])) }));
+    for (const m of present) {
+      mkdirSync(join(root, 'node_modules', m), { recursive: true });
+      writeFileSync(join(root, 'node_modules', m, 'package.json'), JSON.stringify({ name: m, version: '1.0.0' }));
+    }
+    const ran = [];
+    await main(['--site', 'https://prod.example.com', '--biometric', 'host'], root, { exec: (a) => ran.push(a) });
+    assert.deepEqual(ran, [['npx', 'expo', 'install', 'expo-battery']]);
   }));
 
 test('the package manager from the lockfile is passed to expo install', () =>
   withHome(async () => {
     const { root } = workspace({ bench: false });
     writeFileSync(join(root, 'pnpm-lock.yaml'), '');
-    const io = scripted(['https://prod.example.com', '', false, true, '', true]);
+    const io = scripted(['https://prod.example.com', '', false, '', true]);
     await main([], root, { io, doctor });
     const expo = io.ran.find((r) => r.argv[1] === 'expo').argv;
     assert.deepEqual(expo.slice(0, 4), ['npx', 'expo', 'install', '--pnpm']);
@@ -282,12 +375,13 @@ test('the package manager from the lockfile is passed to expo install', () =>
 test('a failed native install is reported with the command, not fatal', () =>
   withHome(async () => {
     const { root } = workspace({ bench: false });
-    const io = scripted(['https://prod.example.com', '', false, true, '', true]);
+    const io = scripted(['https://prod.example.com', '', false, '', true]);
     io.exec = () => {
       throw new Error('network down');
     };
     const out = await main([], root, { io, doctor });
-    assert.match(out, /did not install \(network down\)\. Run: npx expo install/);
+    assert.match(out, /SETUP INCOMPLETE: the native install failed \(network down\)/);
+    assert.match(out, /Run  npx upande-mobile-kit fix /);
     assert.ok(existsSync(join(root, SAVED_FILE)));
   }));
 

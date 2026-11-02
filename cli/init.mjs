@@ -28,6 +28,8 @@ import { fileURLToPath } from 'node:url';
 import { buildAdapters, detectHost, detectHostBiometric, STAND_IN_EFFECT } from './adapters.mjs';
 import { backupNote, createBackup } from './backup.mjs';
 import { BACKEND_APP, BACKEND_REPO_URL, isPlaceholder, KIT_REPO, NATIVE_MODULES, WORKFLOW_REF } from './constants.mjs';
+import { FIX_COMMAND } from './native-modules.mjs';
+import { installNativeModules } from './native-install.mjs';
 import {
   appDir,
   DEFAULT_ROUTES,
@@ -137,7 +139,7 @@ export function rebuildBlock({ added = [], changed = [], pluginAdded = false, up
   const items = [];
   if (added.length) items.push(`packages added: ${added.join(', ')}`);
   if (changed.length) items.push(`packages whose version changed: ${changed.map(([n, a, b]) => `${n} ${a} -> ${b}`).join(', ')}`);
-  if (pending.length) items.push(`packages still to install (expo install adds them): ${pending.join(', ')}`);
+  if (pending.length) items.push(`packages still to install (run ${FIX_COMMAND}): ${pending.join(', ')}`);
   if (pluginAdded) items.push(`app.json: the ${PKG} plugin entry`);
   if (updatesChanged) items.push('app.json: expo.updates.url and runtimeVersion (baked into the native app)');
   if (!items.length) return '';
@@ -349,11 +351,11 @@ export function run(argv, root = process.cwd(), { exec, lastSteps = true, wiring
       if (isPlaceholder(backendRepo) && plan[0].argv[1] === 'get-app') {
         throw new Error('The backend repo is still a placeholder. Pass --backend-repo <git url> (see cli/constants.mjs).');
       }
-      const go = exec ?? ((argv) => execFileSync(argv[0], argv.slice(1), { cwd: bench, stdio: 'inherit' }));
+      const go = exec ?? ((argv, o) => execFileSync(argv[0], argv.slice(1), { cwd: o.cwd, stdio: 'inherit' }));
       for (const step of plan) {
         log.push(`run    ${commandLine(step.argv)}   # ${step.note}`);
         try {
-          go(step.argv);
+          go(step.argv, { cwd: bench });
         } catch (e) {
           if (!step.tolerant) throw new Error(`\`${commandLine(step.argv)}\` failed: ${e.message}`);
           log.push(`note   ${step.note}: ${String(e.message).split('\n')[0]}`);
@@ -372,20 +374,30 @@ export function run(argv, root = process.cwd(), { exec, lastSteps = true, wiring
     }
   }
 
-  const missingNative = NATIVE_MODULES.filter((m) => !(JSON.parse(readFileSync(join(root, 'package.json'), 'utf8')).dependencies ?? {})[m]);
+  // The native modules: every init path installs the missing ones (the wizard does it itself, so it passes lastSteps: false).
+  const depsOf = () => ({ ...(JSON.parse(readFileSync(join(root, 'package.json'), 'utf8')).dependencies ?? {}) });
+  const depsBeforeNative = depsOf();
+  const native = lastSteps
+    ? installNativeModules(root, { exec: exec ? (a, o) => exec(a, o) : undefined, noInstall: argv.includes('--no-install'), biometric })
+    : null;
+  if (native) log.push('', ...native.lines);
+  const addedNative = native ? NATIVE_MODULES.filter((m) => !depsBeforeNative[m] && depsOf()[m]) : [];
+  const missingNative = NATIVE_MODULES.filter((m) => !depsOf()[m]);
   if (!lastSteps) return log.join('\n') + '\n'; // the wizard prints its own report, blocks and backup note
   log.push('', wiringReport({ adapters, biometric, hostLocks }));
   if (backup.files.length) log.push('', backupNote(backup));
   log.push(
     '',
-    rebuildBlock({ pluginAdded: !pluginWasThere, updatesChanged: !!site, pending: missingNative }),
+    rebuildBlock({ added: addedNative, pluginAdded: !pluginWasThere, updatesChanged: !!site, pending: native && native.ok ? [] : missingNative }),
     '',
     'Last steps:',
-    `  1. npx expo install ${NATIVE_MODULES.join(' ')}`,
+    native && !native.ok ? `  1. ${FIX_COMMAND}   (REQUIRED: the native modules are not installed yet)` : '  1. (the native modules are installed)',
     "  2. In the root layout wrap the app in <MobileKitProvider> (import it from '@upande/mobile-kit'); the config import is already added.",
     `  3. Enable GitHub Pages for the gh-pages branch of ${repo} (the first release creates it), then run \`npx upande-mobile-kit verify${site ? ` --site ${site}${devSite ? ` --dev-site ${devSite}` : ''}` : ''}\`.`,
     '',
     openBlock({ root, route: routes.settings, file: settingsFile }),
   );
+  // last thing printed, so it cannot be missed
+  if (native && !native.ok) log.push('', native.lines[native.lines.length - 1]);
   return log.join('\n') + '\n';
 }
