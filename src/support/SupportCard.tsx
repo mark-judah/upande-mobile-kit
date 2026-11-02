@@ -1,28 +1,33 @@
-import { useEffect, useMemo, useState } from 'react';
-import { Pressable, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { useEffect, useState } from 'react';
+import { Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { getConfig } from '../config';
-import { fontSize, spacing, ui, useTheme } from '../ui/primitives';
+import { Row, Toggle, font, fontSize, ui, useTheme } from '../ui/primitives';
 import { APP_VERSION } from '../version';
 import { fetchWhatsNew, WhatsNewSheet } from '../whats-new/WhatsNew';
 import type { NoteSection } from '../whats-new/notes';
 import { SupportInbox } from './SupportInbox';
 import { ReportIssueModal } from './ReportIssueModal';
-import { fetchUnreadCount } from './support-api';
+import { fetchReportsOverview } from './support-api';
+import { reportsHint } from './thread-logic';
 import { disableReplyNotifications, enableReplyNotifications, isPushSupported, pushEnabled, pushStatusMessage } from '../push';
 import { supportOptions } from './options';
 
-/** The "Help" card in Settings: report a problem, chat with support, and the notes of this version. */
+type Overview = { mode: 'issue' | 'chat'; open: number; total: number; unread: number };
+
+/**
+ * The "Help" card in Settings: report a problem, My reports (every report and question with its status, the
+ * answers and each change of status), ask support, reply notifications, and the notes of this version.
+ */
 export function SupportCard() {
   const cfg = getConfig();
   const { Card, useToast } = ui();
   const { showSuccess, showError } = useToast();
   const t = useTheme();
-  const s = useMemo(() => styles(t), [t]);
   const opts = supportOptions(cfg.support);
   const notes = cfg.whatsNew !== false;
-  const [open, setOpen] = useState<'report' | 'chat' | 'notes' | null>(null);
-  const [unread, setUnread] = useState(0);
+  const [open, setOpen] = useState<'report' | 'chat' | 'ask' | 'notes' | null>(null);
+  const [overview, setOverview] = useState<Overview | null>(null);
   const [sections, setSections] = useState<NoteSection[] | null>(null);
   const [loadingNotes, setLoadingNotes] = useState(false);
   const pushSupported = opts.chat && isPushSupported();
@@ -44,8 +49,8 @@ export function SupportCard() {
   const signedIn = !!cfg.useAuth().user || cfg.standIns.useAuth;
 
   useEffect(() => {
-    if (!opts.chat || !signedIn) return;
-    fetchUnreadCount().then(setUnread, () => {});
+    if (!opts.chat || !signedIn || open) return;
+    fetchReportsOverview().then(setOverview, () => {});
   }, [opts.chat, signedIn, open]);
 
   if (!opts.report && !opts.chat && !notes) return null;
@@ -59,40 +64,45 @@ export function SupportCard() {
     });
   };
 
-  const Row = ({ icon, label, hint, onPress, badge }: { icon: 'bug-outline' | 'chatbubbles-outline' | 'sparkles-outline'; label: string; hint: string; onPress: () => void; badge?: number }) => (
-    <Pressable accessibilityRole="button" onPress={onPress} style={s.row}>
-      <Ionicons name={icon} size={20} color={t.primary} />
-      <View style={{ flex: 1 }}>
-        <Text style={s.label}>{label}</Text>
-        <Text style={s.hint}>{hint}</Text>
-      </View>
-      {badge ? (
-        <View style={s.badge}>
-          <Text style={s.badgeText}>{badge > 9 ? '9+' : badge}</Text>
-        </View>
-      ) : null}
-      <Ionicons name="chevron-forward" size={18} color={t.textMuted} />
-    </Pressable>
+  const unread = overview?.unread ?? 0;
+  const chatMode = overview?.mode === 'chat';
+  const badge = unread ? (
+    <View style={{ minWidth: 20, height: 20, borderRadius: 10, backgroundColor: t.danger, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 5 }}>
+      <Text style={[font(t, 'bold'), { color: '#FFFFFF', fontSize: fontSize.xs }]}>{unread > 9 ? '9+' : unread}</Text>
+    </View>
+  ) : null;
+  const chevronWith = (extra: React.ReactNode) => (
+    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+      {extra}
+      <Ionicons name="chevron-forward" size={17} color={t.textMuted} />
+    </View>
   );
+
+  const rows: ((last: boolean) => React.ReactNode)[] = [];
+  if (opts.report) rows.push((last) => <Row key="report" icon="bug-outline" label="Report a problem" hint="Send us a screenshot and what went wrong" onPress={() => setOpen('report')} last={last} />);
+  if (opts.chat && chatMode) {
+    rows.push((last) => <Row key="chat" icon="chatbubbles-outline" label="Chat with support" hint="Ask a question and get a reply here" right={chevronWith(badge)} onPress={() => setOpen('chat')} last={last} />);
+  } else if (opts.chat) {
+    rows.push((last) => (
+      <Row
+        key="reports"
+        icon="albums-outline"
+        label="My reports"
+        hint={overview ? reportsHint(overview) : 'Your reports, support answers and status changes'}
+        right={chevronWith(badge)}
+        onPress={() => setOpen('chat')}
+        last={last}
+      />
+    ));
+    rows.push((last) => <Row key="ask" icon="chatbubble-ellipses-outline" label="Ask support" hint="Start a conversation with the team" onPress={() => setOpen('ask')} last={last} />);
+  }
+  if (pushSupported) rows.push((last) => <Row key="push" icon="notifications-outline" label="Notify me about replies" hint="A notification when support answers" right={<Toggle value={pushOn} onChange={() => void togglePush()} />} last={last} />);
+  if (notes) rows.push((last) => <Row key="notes" icon="sparkles-outline" label="What's new" hint={`Changes in v${APP_VERSION}`} onPress={openNotes} last={last} />);
 
   return (
     <>
       <Card title="Help">
-        {opts.report ? <Row icon="bug-outline" label="Report a problem" hint="Send us a screenshot and what went wrong" onPress={() => setOpen('report')} /> : null}
-        {opts.chat ? <Row icon="chatbubbles-outline" label="Chat with support" hint="Ask a question and get a reply here" badge={unread} onPress={() => setOpen('chat')} /> : null}
-        {pushSupported ? (
-          <View style={s.row}>
-            <Ionicons name="notifications-outline" size={20} color={t.primary} />
-            <View style={{ flex: 1 }}>
-              <Text style={s.label}>Notify me about replies</Text>
-              <Text style={s.hint}>A notification when support answers</Text>
-            </View>
-            <TouchableOpacity accessibilityRole="switch" accessibilityState={{ checked: pushOn }} onPress={() => void togglePush()} activeOpacity={0.8} style={[s.toggle, pushOn && { backgroundColor: t.primary }]}>
-              <View style={[s.dot2, pushOn && { alignSelf: 'flex-end' }]} />
-            </TouchableOpacity>
-          </View>
-        ) : null}
-        {notes ? <Row icon="sparkles-outline" label="What's new" hint={`Changes in v${APP_VERSION}`} onPress={openNotes} /> : null}
+        {rows.map((r, i) => r(i === rows.length - 1))}
       </Card>
       {open === 'report' ? (
         <ReportIssueModal
@@ -103,19 +113,8 @@ export function SupportCard() {
           }}
         />
       ) : null}
-      {open === 'chat' ? <SupportInbox onClose={() => setOpen(null)} /> : null}
+      {open === 'chat' || open === 'ask' ? <SupportInbox startNew={open === 'ask'} onClose={() => setOpen(null)} /> : null}
       {open === 'notes' ? <WhatsNewSheet version={APP_VERSION} sections={sections} loading={loadingNotes} onClose={() => setOpen(null)} /> : null}
     </>
   );
 }
-
-const styles = (t: ReturnType<typeof useTheme>) =>
-  StyleSheet.create({
-    row: { flexDirection: 'row', alignItems: 'center', gap: spacing.md, paddingVertical: spacing.sm },
-    label: { fontSize: fontSize.sm, fontWeight: '600', color: t.text },
-    hint: { fontSize: fontSize.xs, color: t.textMuted, marginTop: 2 },
-    badge: { minWidth: 20, height: 20, borderRadius: 10, backgroundColor: t.danger, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 5 },
-    toggle: { width: 46, height: 26, borderRadius: 13, backgroundColor: t.border, padding: 2, justifyContent: 'center' },
-    dot2: { width: 22, height: 22, borderRadius: 11, backgroundColor: '#fff', alignSelf: 'flex-start' },
-    badgeText: { color: '#fff', fontSize: 11, fontWeight: '700' },
-  });

@@ -4,7 +4,9 @@ import { getConfig } from '../config';
 import { hasNativeModule } from '../native-probe';
 import { lastLatencyMs, refreshLatency, getProbeSite } from '../monitor/net-stats';
 import { isForcedOffline } from '../monitor/link-health';
+import { Ionicons } from '@expo/vector-icons';
 import { useInsets } from './insets';
+import { font, fontSize, radius, shadow, spacing, tint } from './primitives';
 import { bannerState, bannerText, isOffline, resolveBanner, type BannerState } from './connection-logic';
 
 const POLL_MS = 5000;
@@ -68,12 +70,18 @@ export function ConnectionBanner() {
 
   if (!opts.enabled || state === 'ok') return null;
   const t = cfg.theme;
+  const offline = state === 'offline';
+  const tone = offline ? t.danger : t.warning;
   return (
-    <View pointerEvents="box-none" style={[styles.wrap, { paddingTop: insets.top + 4 }]}>
-      <View accessibilityLiveRegion="polite" style={[styles.bar, { backgroundColor: state === 'offline' ? t.danger : '#8A6D00' }]}>
-        <Text style={styles.text}>{bannerText(state)}</Text>
-        <Pressable accessibilityRole="button" onPress={openWifiSettings} hitSlop={8}>
-          <Text style={styles.action}>Wi-Fi settings</Text>
+    <View pointerEvents="box-none" style={[styles.wrap, { paddingTop: insets.top + spacing.xs }]}>
+      <View
+        accessibilityLiveRegion="polite"
+        style={[styles.bar, { backgroundColor: t.surface, borderColor: tint(tone, 0.45), borderLeftColor: tone }]}
+      >
+        <Ionicons name={offline ? 'cloud-offline-outline' : 'speedometer-outline'} size={18} color={tone} />
+        <Text style={[styles.text, font(t, 'medium'), { color: t.text }]}>{bannerText(state)}</Text>
+        <Pressable accessibilityRole="button" onPress={openWifiSettings} hitSlop={8} style={styles.actionBox}>
+          <Text style={[styles.action, font(t, 'semiBold'), { color: t.text }]}>Wi-Fi settings</Text>
         </Pressable>
       </View>
     </View>
@@ -81,8 +89,19 @@ export function ConnectionBanner() {
 }
 
 const styles = StyleSheet.create({
-  wrap: { position: 'absolute', top: 0, left: 0, right: 0, paddingHorizontal: 10, zIndex: 9998, elevation: 9998 },
-  bar: { flexDirection: 'row', alignItems: 'center', gap: 10, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 8 },
-  text: { flex: 1, color: '#fff', fontSize: 13 },
-  action: { color: '#fff', fontSize: 13, fontWeight: '700', textDecorationLine: 'underline' },
+  wrap: { position: 'absolute', top: 0, left: 0, right: 0, paddingHorizontal: spacing.md, zIndex: 9998, elevation: 9998 },
+  bar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    borderRadius: radius.md,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderLeftWidth: 3,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    ...shadow.md,
+  },
+  text: { flex: 1, fontSize: fontSize.sm },
+  actionBox: { minHeight: 32, justifyContent: 'center' },
+  action: { fontSize: fontSize.xs, textTransform: 'uppercase', letterSpacing: 0.4 },
 });

@@ -98,3 +98,14 @@ describe('saved position', () => {
     }
   });
 });
+
+describe('long-press hold ring', () => {
+  const { holdFraction, FAB_LONG_PRESS_MS } = require('../src/ui/fab-logic');
+  it('fills from 0 to 1 over the long-press time and never leaves that range', () => {
+    expect(holdFraction(0)).toBe(0);
+    expect(holdFraction(FAB_LONG_PRESS_MS / 2)).toBeCloseTo(0.5);
+    expect(holdFraction(FAB_LONG_PRESS_MS)).toBe(1);
+    expect(holdFraction(FAB_LONG_PRESS_MS * 3)).toBe(1);
+    expect(holdFraction(-50)).toBe(0);
+  });
+});

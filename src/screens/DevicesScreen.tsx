@@ -13,7 +13,7 @@ import {
 } from '../devices/devices-api';
 import { getInstallId, getRegisteredRowId } from '../devices/install-register';
 import { registerKitScreen } from '../route-guard';
-import { Segmented, spacing, fontSize, ui, useTheme } from '../ui/primitives';
+import { EmptyState, Pill, Segmented, StatTile, font, fontSize, radius, spacing, tint, type as typeStyles, type Tone, ui, useTheme } from '../ui/primitives';
 
 /**
  * The device register: each device running this app, the build it runs, every
@@ -31,14 +31,14 @@ const SEARCH_SIZE = 500;
 
 type Window = '0' | '7' | '30';
 
-const statusStyles = (t: KitTheme): Record<InstallStatus, { label: string; fg: string; bg: string }> => ({
-  current: { label: 'Current', fg: '#166534', bg: '#DCFCE7' },
-  behind_ota: { label: 'Behind', fg: '#92400E', bg: '#FEF3C7' },
-  needs_apk: { label: 'Needs APK', fg: '#991B1B', bg: '#FEE2E2' },
-  ahead: { label: 'Ahead', fg: '#1E40AF', bg: '#DBEAFE' },
-  dormant: { label: 'Dormant', fg: t.textSecondary, bg: t.surfaceAlt },
-  unknown: { label: 'Unknown', fg: t.textSecondary, bg: t.surfaceAlt },
-});
+const STATUS: Record<InstallStatus, { label: string; tone: Tone }> = {
+  current: { label: 'Current', tone: 'success' },
+  behind_ota: { label: 'Behind', tone: 'warning' },
+  needs_apk: { label: 'Needs APK', tone: 'danger' },
+  ahead: { label: 'Ahead', tone: 'info' },
+  dormant: { label: 'Dormant', tone: 'neutral' },
+  unknown: { label: 'Unknown', tone: 'neutral' },
+};
 
 function ago(ts: string | null | undefined, serverNow: string | null | undefined): string {
   const t = parseServerTime(ts);
@@ -167,6 +167,19 @@ function DevicesRegister() {
       onRetry={() => load(false)}
       onRefresh={() => load(false)}
     >
+      {data ? (
+        <View style={s.tiles}>
+          <StatTile label="Devices" value={String(count)} icon="phone-portrait-outline" />
+          <StatTile label="Current" value={String(byStatus.current ?? 0)} icon="checkmark-circle-outline" tone="success" />
+          <StatTile
+            label="Needs update"
+            value={String((byStatus.behind_ota ?? 0) + (byStatus.needs_apk ?? 0))}
+            icon="cloud-download-outline"
+            tone={(byStatus.behind_ota ?? 0) + (byStatus.needs_apk ?? 0) > 0 ? 'warning' : 'neutral'}
+          />
+        </View>
+      ) : null}
+
       <Card>
         <Segmented<Window>
           value={days}
@@ -190,18 +203,23 @@ function DevicesRegister() {
               autoCorrect={false}
             />
             {search ? (
-              <Pressable onPress={() => setSearch('')} hitSlop={8}>
+              <Pressable onPress={() => setSearch('')} hitSlop={10} accessibilityLabel="Clear search">
                 <Ionicons name="close-circle" size={16} color={t.textMuted} />
               </Pressable>
             ) : null}
           </View>
-          <Pressable onPress={() => setDormant((d) => !d)} style={[s.chip, dormant && s.chipOn]}>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityState={{ selected: dormant }}
+            onPress={() => setDormant((d) => !d)}
+            style={[s.chip, dormant && s.chipOn]}
+          >
             <Text style={[s.chipText, dormant && s.chipTextOn]}>Dormant</Text>
           </Pressable>
         </View>
         {data ? (
           <View style={s.counts}>
-            {(Object.keys(statusStyles(t)) as InstallStatus[])
+            {(Object.keys(STATUS) as InstallStatus[])
               .filter((st) => byStatus[st])
               .map((st) => (
                 <StatusBadge key={st} status={st} count={byStatus[st]} />
@@ -212,9 +230,9 @@ function DevicesRegister() {
 
       <Card title={data ? `${count} ${count === 1 ? 'device' : 'devices'}` : 'Devices'}>
         {error && data ? <Text style={s.errorText}>{error}</Text> : null}
-        {!shown.length && !loading ? <Text style={s.empty}>No devices</Text> : null}
-        {shown.map((r) => (
-          <DeviceRow key={r.install_id} row={r} serverNow={data?.server_time} mine={r.install_id === myInstallId || r.install_id === myRowId} />
+        {!shown.length && !loading ? <EmptyState icon="phone-portrait-outline" title="No devices" subtitle="Nothing matches these filters." /> : null}
+        {shown.map((r, i) => (
+          <DeviceRow key={r.install_id} row={r} serverNow={data?.server_time} first={i === 0} mine={r.install_id === myInstallId || r.install_id === myRowId} />
         ))}
         {hasMore ? (
           <Button
@@ -231,20 +249,11 @@ function DevicesRegister() {
 }
 
 function StatusBadge({ status, count }: { status: InstallStatus; count?: number }) {
-  const t = useTheme();
-  const s = useMemo(() => styles(t), [t]);
-  const st = statusStyles(t)[status] ?? statusStyles(t).unknown;
-  return (
-    <View style={[s.badge, { backgroundColor: st.bg }]}>
-      <Text style={[s.badgeText, { color: st.fg }]}>
-        {st.label}
-        {count != null ? ` ${count}` : ''}
-      </Text>
-    </View>
-  );
+  const st = STATUS[status] ?? STATUS.unknown;
+  return <Pill label={`${st.label}${count != null ? ` ${count}` : ''}`} tone={st.tone} />;
 }
 
-function DeviceRow({ row, serverNow, mine }: { row: InstallRow; serverNow?: string; mine: boolean }) {
+function DeviceRow({ row, serverNow, mine, first }: { row: InstallRow; serverNow?: string; mine: boolean; first?: boolean }) {
   const t = useTheme();
   const s = useMemo(() => styles(t), [t]);
   const [open, setOpen] = useState(false);
@@ -255,12 +264,15 @@ function DeviceRow({ row, serverNow, mine }: { row: InstallRow; serverNow?: stri
   const userCount = row.user_count ?? users.length;
   const lastUser = row.full_name || row.user || 'No user';
   return (
-    <Pressable onPress={() => setOpen((o) => !o)} style={({ pressed }) => [s.row, pressed && { opacity: 0.8 }]}>
-      <Ionicons
-        name={row.is_physical_device ? 'phone-portrait-outline' : 'desktop-outline'}
-        size={20}
-        color={t.textSecondary}
-      />
+    <Pressable
+      accessibilityRole="button"
+      accessibilityState={{ expanded: open }}
+      onPress={() => setOpen((o) => !o)}
+      style={({ pressed }) => [s.row, first && s.rowFirst, pressed && { opacity: 0.8 }]}
+    >
+      <View style={s.deviceIcon}>
+        <Ionicons name={row.is_physical_device ? 'phone-portrait-outline' : 'desktop-outline'} size={18} color={t.text} />
+      </View>
       <View style={s.flex}>
         <Text style={s.rowTitle} numberOfLines={1}>
           {name}
@@ -275,9 +287,12 @@ function DeviceRow({ row, serverNow, mine }: { row: InstallRow; serverNow?: stri
           {userCount > 1 ? ` · ${userCount} users` : ''}
         </Text>
         {row.update_to ? (
-          <Text style={s.updateTo} numberOfLines={2}>
-            Update to {row.update_to}
-          </Text>
+          <View style={s.updateRow}>
+            <Ionicons name="arrow-up-circle-outline" size={13} color={t.text} />
+            <Text style={s.updateTo} numberOfLines={2}>
+              Update to {row.update_to}
+            </Text>
+          </View>
         ) : null}
         {open ? (
           <View style={s.details}>
@@ -326,61 +341,60 @@ function Detail({ label, value }: { label: string; value: string }) {
   );
 }
 
-const styles = (t: KitTheme) =>
-  StyleSheet.create({
-  flex: { flex: 1 },
-  gap: { height: spacing.sm },
-  searchRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, marginTop: spacing.md },
-  searchBox: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.sm,
-    borderWidth: 1,
-    borderColor: t.border,
-    borderRadius: 10,
-    paddingHorizontal: spacing.md,
-    height: 40,
-  },
-  searchInput: { flex: 1, fontFamily: (t.fontRegular || undefined), fontSize: fontSize.md, color: t.text, padding: 0 },
-  chip: {
-    paddingHorizontal: spacing.md,
-    height: 40,
-    justifyContent: 'center',
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: t.border,
-  },
-  chipOn: { backgroundColor: t.text, borderColor: t.text },
-  chipText: { fontFamily: (t.fontMedium || undefined), fontSize: fontSize.sm, color: t.textSecondary },
-  chipTextOn: { color: t.textOnPrimary },
-  counts: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginTop: spacing.md },
-  row: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    gap: spacing.md,
-    paddingVertical: spacing.sm,
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: t.border,
-  },
-  rowTitle: { fontFamily: (t.fontSemiBold || undefined), fontSize: fontSize.sm, color: t.text },
-  rowMeta: { fontFamily: (t.fontRegular || undefined), fontSize: fontSize.xs, color: t.textMuted, marginTop: 2 },
-  updateTo: { fontFamily: (t.fontMedium || undefined), fontSize: fontSize.xs, color: t.text, marginTop: 2 },
-  badge: { paddingHorizontal: spacing.sm, paddingVertical: 2, borderRadius: 999 },
-  badgeText: { fontFamily: (t.fontMedium || undefined), fontSize: fontSize.xs },
-  details: { marginTop: spacing.sm, gap: 2 },
-  detailRow: { flexDirection: 'row', gap: spacing.sm },
-  detailLabel: { width: 80, fontFamily: (t.fontRegular || undefined), fontSize: fontSize.xs, color: t.textMuted },
-  detailValue: { flex: 1, fontFamily: (t.fontMedium || undefined), fontSize: fontSize.xs, color: t.textSecondary },
-  userName: { flex: 1, fontFamily: (t.fontMedium || undefined), fontSize: fontSize.xs, color: t.text },
-  userVersion: { fontFamily: (t.fontRegular || undefined), fontSize: fontSize.xs, color: t.textSecondary },
-  empty: {
-    fontFamily: (t.fontRegular || undefined),
-    fontSize: fontSize.sm,
-    color: t.textMuted,
-    textAlign: 'center',
-    paddingVertical: spacing.lg,
-  },
-  errorText: { fontFamily: (t.fontRegular || undefined), fontSize: fontSize.sm, color: t.danger, marginBottom: spacing.sm },
-  more: { marginTop: spacing.sm },
-});
+const styles = (t: KitTheme) => {
+  const tx = typeStyles(t);
+  return StyleSheet.create({
+    flex: { flex: 1 },
+    gap: { height: spacing.sm },
+    tiles: { flexDirection: 'row', gap: spacing.sm },
+    searchRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, marginTop: spacing.md },
+    searchBox: {
+      flex: 1,
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: spacing.sm,
+      borderWidth: 1,
+      borderColor: t.border,
+      borderRadius: radius.md,
+      backgroundColor: t.surface,
+      paddingHorizontal: spacing.md,
+      minHeight: 44,
+    },
+    searchInput: { ...font(t, 'regular'), flex: 1, fontSize: fontSize.md, color: t.text, padding: 0 },
+    chip: {
+      paddingHorizontal: spacing.md,
+      minHeight: 44,
+      justifyContent: 'center',
+      borderRadius: radius.md,
+      borderWidth: 1,
+      borderColor: t.border,
+      backgroundColor: t.surface,
+    },
+    chipOn: { backgroundColor: t.primary, borderColor: t.primary },
+    chipText: { ...font(t, 'medium'), fontSize: fontSize.sm, color: t.textSecondary },
+    chipTextOn: { color: t.textOnPrimary },
+    counts: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginTop: spacing.md },
+    row: {
+      flexDirection: 'row',
+      alignItems: 'flex-start',
+      gap: spacing.md,
+      paddingVertical: spacing.md,
+      borderTopWidth: StyleSheet.hairlineWidth,
+      borderTopColor: t.border,
+    },
+    rowFirst: { borderTopWidth: 0, paddingTop: 0 },
+    deviceIcon: { width: 34, height: 34, borderRadius: 10, backgroundColor: t.surfaceAlt, alignItems: 'center', justifyContent: 'center' },
+    rowTitle: { ...tx.label },
+    rowMeta: { ...tx.small, fontSize: fontSize.xs, marginTop: 2 },
+    updateRow: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 4 },
+    updateTo: { ...font(t, 'medium'), flexShrink: 1, fontSize: fontSize.xs, color: t.text },
+    details: { marginTop: spacing.md, padding: spacing.md, gap: 4, borderRadius: radius.md, backgroundColor: t.surfaceAlt },
+    detailRow: { flexDirection: 'row', gap: spacing.sm },
+    detailLabel: { ...tx.caption, width: 80 },
+    detailValue: { ...font(t, 'medium'), flex: 1, fontSize: fontSize.xs, color: t.text },
+    userName: { ...font(t, 'semiBold'), flex: 1, fontSize: fontSize.xs, color: t.text },
+    userVersion: { ...tx.small, fontSize: fontSize.xs },
+    errorText: { ...tx.small, color: t.danger, marginBottom: spacing.sm, backgroundColor: tint(t.danger, 0.08), padding: spacing.sm, borderRadius: radius.sm },
+    more: { marginTop: spacing.sm },
+  });
+};

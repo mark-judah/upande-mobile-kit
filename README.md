@@ -45,7 +45,7 @@ Every feature name links to its section. "Needs" lists native modules beyond the
 | Feature | What it does | Needs |
 |---|---|---|
 | [Report a problem](#report-a-problem) | From any screen (header button, long-press or your own trigger): a screenshot, the device, the last requests and the last crash, filed as an Issue on your site | `react-native-view-shot` for the screenshot |
-| [Chat with support](#chat-with-support) | The person's conversations with your team, as Issues: support answers with a comment on the Issue, the answer shows in the app | none |
+| [My reports](#my-reports-and-chat-with-support) | Every report and question the person sent, with its status, the whole message thread, support's answers and each change of status | none |
 | [Reply notifications](#reply-notifications) | A push notification when support replies; tapping it opens the conversation | `expo-notifications`, an Expo project id, Firebase on Android |
 | [What's new](#whats-new) | The release notes, shown once after an update | none |
 | [Last crash capture](#last-crash-capture) | The crash that made someone write in is attached to their report | none |
@@ -228,7 +228,7 @@ From top to bottom:
 | Profile | The user's initial, name, email and site, taken from your `useAuth` |
 | Dev notice | Development builds only: which of `useAuth`, `api` and `storage` are still on the kit's stand-ins |
 | Security | The fingerprint switch (see [Fingerprint unlock](#fingerprint-unlock) and the [vault](#fingerprint-sign-in-vault)). With `biometric: 'host'` it still shows whenever your own `useAuth` is wired: it sets your `biometricEnabled` and your app does the locking |
-| Help | **Report a problem**, **Chat with support** and **What's new** (see [Help and support](#help-and-support)) |
+| Help | **Report a problem**, **My reports** and **What's new** (see [Help and support](#help-and-support)) |
 | Diagnostics | The **Send crash reports** switch, and a **Send test error** button in development. Hidden with `monitor.showToggle: false` |
 | App & Server | The [version information](#version-information), the **Check for updates** button and the **Download updates** choice (see [Updates on the phone](#updates-on-the-phone)) |
 | Not available in this build | Only when an optional native module is missing, for example "Battery info unavailable: rebuild required" |
@@ -268,7 +268,8 @@ On open, the app checks for an over-the-air bundle. If one downloads in the firs
 ### APK updates
 
 - **Check for updates.** The one button in App & Server. It checks GitHub Releases for a new APK first, because a new APK carries a new runtime and supersedes any OTA bundle. If the APK is current it asks for an OTA bundle. When an APK is available the same button reads **Download v1.3.0 (size)**, then **Install v1.3.0**.
-- **Download updates.** A choice under that button: **Wi-Fi only** (the default), **Any network** or **Off**. The user's choice wins over `apk.autoDownload`. Once a day the app checks GitHub Releases; on Wi-Fi it downloads a newer APK in the background. A finished download is kept, so a cancelled installer can be reopened without downloading again.
+- **Download updates.** A choice under that button: **Wi-Fi only** (the default), **Any network** or **Off**. The user's choice wins over `apk.autoDownload`. Once a day (and whenever the app returns to the foreground) the app checks GitHub Releases; a newer APK downloads by itself in the background, and the **progress shows as a ring around the floating Settings button** and as a bar in the update card. A download skipped because the phone was on mobile data starts when the app is next opened on Wi-Fi. A finished download is kept, so a cancelled installer can be reopened without downloading again.
+- **Which APK is installed.** Settings shows an **APK** row beside **Installed**: OTA updates change the code a phone runs but never its APK, so the two can differ. The kit reads the APK's own version from `expo-application` (it ships with `expo-updates`).
 - **Android cannot install an APK silently.** The user always confirms in Android's installer, and the first time Android also asks to allow installs from this app.
 
 ### Forced install
@@ -647,7 +648,7 @@ A "What will be sent" list shows all of it before they send.
 
 | Trigger | How |
 |---|---|
-| Long-press the floating button | Built in (600 ms). A tap still opens Settings |
+| Long-press the floating button | Built in. Hold for about half a second: a ring fills around the button while it shrinks under the finger, then it buzzes and pulses once and the sheet opens. A tap still opens Settings, and dragging moves the button instead |
 | A button in your own header or menu | `<ReportProblemButton />` (an icon, or pass `label="Report a problem"`) |
 | Anything else (a shake handler, a menu item, an error screen) | `await openReportProblem()`, or `const { reportProblem } = useReportProblem()` |
 
@@ -662,12 +663,12 @@ The sheet is mounted by `<MobileKitProvider>`, so these work wherever the provid
 
 **Where it lands.** On a site with the **Issue** doctype (ERPNext or Helpdesk) the report is filed as an ordinary **Issue**: subject `[Your App] what they wrote`, raised by the person's email, the diagnostics in the description under a divider line, and the **screenshot attached to the Issue**. It then follows your normal support workflow (numbering, SLA, assignment, replies). The [web portal](#the-web-portal)'s **Support** page lists these Issues and links to each in Desk. A site without Issue gets a *Mobile Report* record instead. See the [backend README](https://github.com/mark-judah/upande-mobile#problem-reports).
 
-### Chat with support
+### My reports and chat with support
 
 On a site with the **Issue** doctype (ERPNext or Helpdesk) a conversation **is an Issue**, the way your support team already works:
 
-- **The list** shows the person's own Issues for this app (their reports and questions), newest first, with the status and a dot on every conversation support has answered since they last opened it. The Help row shows how many.
-- **A conversation** opens with what they wrote, then every comment on the Issue. **Support replies by adding a Comment on the Issue in Desk**, no new tool to learn; the answer appears in the app within a few seconds while the conversation is open.
+- **My reports** (Settings > Help) says how many reports are open and how many have a new reply, and opens the list. The list shows the person's own Issues for this app (their reports and questions), newest first, each with a status chip (Open, Replied, Resolved, Closed), when it last moved, and a dot when support has answered since they last opened it. It refreshes while open and by pulling down. **Ask support** starts a new conversation directly.
+- **A conversation** is one timeline: a status header (what the status means for them, when they sent it, whether a screenshot went with it), what they wrote, every comment on the Issue (support's marked with the time), and every **change of status** ("Replied", "Marked resolved", "Reopened", "Closed") as a line between the messages. **Support replies by adding a Comment on the Issue in Desk**, no new tool to learn; the answer and the status change appear in the app within a few seconds while the conversation is open. The status history comes from `upande_mobile` 0.5.0 or newer (`events` in `thread`); an older backend still shows the messages.
 - **The person answers** in the app; that is added as a Comment on the same Issue, and an Issue that was Replied or Resolved goes back to Open so support sees it. A Closed conversation cannot be replied to; the person starts a new one.
 - **New message** starts a conversation: a subject and the first message, filed as an Issue (with the diagnostics, without a screenshot).
 
@@ -763,7 +764,7 @@ Without `useAuth`, `api` and `storage` the kit runs on stand-ins. The Settings p
 | Key | Default | Meaning |
 |---|---|---|
 | `fab` | `true` | `true`, `false`, `'dev'` or `{ initialSide: 'left' \| 'right', bottom: 96, whenSignedOut: false }` (see [the floating button](#the-floating-button)) |
-| `theme`, `ui` | built-in look | Colours and fonts, or swap `Screen`, `Card`, `Button`, `useToast`, `showDialog`, `useOnline` |
+| `theme`, `ui` | the Upande design system | Colours and fonts (see [Look and feel](#look-and-feel)), or swap `Screen`, `Card`, `Button`, `useToast`, `showDialog`, `useOnline` |
 | `serverApps` | Frappe and ERPNext | `[key, label][]` site apps to list on Settings. The kit's backend is always added |
 | `settingsRoute`, `devicesRoute` | `/mobile-kit/settings`, `/mobile-kit/devices` | Rarely needed; the defaults live in a folder no app uses, so they cannot collide |
 | `errorMessage`, `onAvatarLongPress` | none | Optional hooks |
@@ -808,6 +809,27 @@ Without `useAuth`, `api` and `storage` the kit runs on stand-ins. The Settings p
 | `errorBoundary` | `false` |
 | `showToggle` | `true` (the "Send crash reports" row) |
 | `showTestActions` | `__DEV__` (the "Send test error" button) |
+
+### Look and feel
+
+Every page and sheet follows the Upande design system, so the kit looks like the rest of the fleet without any setup: a near-black primary on a `#FAFAFA` background, white cards with a hairline `#E5E5E5` border, radius 10 and 14, small uppercase section captions, DM Sans for text and Poppins for headings, and colour only for status (green, amber, red chips). Icons are Ionicons.
+
+The fonts are used when the app has loaded them (`@expo-google-fonts/dm-sans` and `@expo-google-fonts/poppins`) and fall back to the system font when it has not. An app with other tokens passes `theme`, and the whole kit follows:
+
+```ts
+configureMobileKit({
+  // ...
+  theme: { primary: '#0F766E', fontRegular: 'Inter_400Regular', fontSemiBold: 'Inter_600SemiBold' },
+});
+```
+
+| Token | Default | Used for |
+|---|---|---|
+| `primary`, `textOnPrimary` | `#171717`, `#FFFFFF` | Buttons, the floating button, switches, the avatar |
+| `text`, `textSecondary`, `textMuted` | `#171717`, `#525252`, `#A3A3A3` | Text, in three strengths |
+| `background`, `surface`, `surfaceAlt`, `border` | `#FAFAFA`, `#FFFFFF`, `#F5F5F5`, `#E5E5E5` | Page, cards, soft panels, hairlines |
+| `success`, `warning`, `danger` | `#22C55E`, `#F59E0B`, `#EF4444` | Status chips and errors |
+| `fontRegular`, `fontMedium`, `fontSemiBold`, `fontBold` | DM Sans and Poppins | Text and headings |
 
 ### Config plugin
 

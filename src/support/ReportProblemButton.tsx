@@ -1,6 +1,7 @@
 import { Pressable, Text } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { getConfig } from '../config';
+import { font } from '../ui/primitives';
 import { openReportProblem } from './controller';
 import { supportOptions } from './options';
 
@@ -21,7 +22,7 @@ export function ReportProblemButton({ label, size = 22, color }: { label?: strin
       style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: 6, opacity: pressed ? 0.6 : 1 })}
     >
       <Ionicons name="bug-outline" size={size} color={tint} />
-      {label ? <Text style={{ color: tint, fontSize: 14 }}>{label}</Text> : null}
+      {label ? <Text style={[font(cfg.theme, 'semiBold'), { color: tint, fontSize: 13 }]}>{label}</Text> : null}
     </Pressable>
   );
 }

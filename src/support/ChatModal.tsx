@@ -3,7 +3,7 @@ import { ActivityIndicator, AppState, FlatList, Pressable, StyleSheet, Text, Tex
 import { Ionicons } from '@expo/vector-icons';
 import { getConfig } from '../config';
 import { Sheet } from '../ui/Sheet';
-import { fontSize, spacing, useTheme } from '../ui/primitives';
+import { EmptyState, fontSize, radius, spacing, type, useTheme } from '../ui/primitives';
 import { fetchChat, mergeMessages, sendChat, type ChatMessage } from './support-api';
 
 const POLL_MS = 6000;
@@ -71,7 +71,7 @@ export function ChatModal({ onClose }: { onClose: () => void }) {
     <Sheet title="Chat with support" tall onClose={onClose}>
       <View style={{ flex: 1 }}>
         {loading ? (
-          <ActivityIndicator style={{ marginTop: 40 }} color={t.primary} />
+          <ActivityIndicator style={{ marginTop: 40 }} color={t.text} />
         ) : (
           <FlatList
             ref={list}
@@ -79,7 +79,7 @@ export function ChatModal({ onClose }: { onClose: () => void }) {
             keyExtractor={(m) => m.id}
             contentContainerStyle={{ gap: 6, paddingVertical: 8 }}
             onContentSizeChange={() => list.current?.scrollToEnd({ animated: false })}
-            ListEmptyComponent={<Text style={s.empty}>Say hello. Someone from the team will reply here.</Text>}
+            ListEmptyComponent={<EmptyState icon="chatbubbles-outline" title="Say hello" subtitle="Someone from the team will reply here." />}
             renderItem={({ item }) => (
               <View style={[s.row, !item.from_staff && s.mine]}>
                 <View style={[s.bubble, item.from_staff ? s.theirs : s.myBubble]}>
@@ -101,17 +101,18 @@ export function ChatModal({ onClose }: { onClose: () => void }) {
   );
 }
 
-const styles = (t: ReturnType<typeof useTheme>) =>
-  StyleSheet.create({
+const styles = (t: ReturnType<typeof useTheme>) => {
+  const tx = type(t);
+  return StyleSheet.create({
     row: { flexDirection: 'row', justifyContent: 'flex-start' },
     mine: { justifyContent: 'flex-end' },
-    bubble: { maxWidth: '82%', borderRadius: 14, paddingHorizontal: 12, paddingVertical: 8 },
-    theirs: { backgroundColor: t.surfaceAlt },
-    myBubble: { backgroundColor: t.primary },
-    text: { fontSize: fontSize.sm, color: t.text },
-    empty: { textAlign: 'center', color: t.textMuted, fontSize: fontSize.sm, marginTop: 40 },
-    error: { color: t.danger, fontSize: fontSize.xs, marginVertical: 4 },
+    bubble: { maxWidth: '84%', borderRadius: radius.lg, paddingHorizontal: 13, paddingVertical: 9 },
+    theirs: { backgroundColor: t.surfaceAlt, borderTopLeftRadius: 4 },
+    myBubble: { backgroundColor: t.primary, borderTopRightRadius: 4 },
+    text: { ...tx.body, fontSize: fontSize.sm, lineHeight: 19 },
+    error: { ...tx.small, color: t.danger, marginVertical: 4 },
     composer: { flexDirection: 'row', alignItems: 'flex-end', gap: spacing.sm, paddingTop: spacing.sm },
-    input: { flex: 1, maxHeight: 110, borderWidth: 1, borderColor: t.border, borderRadius: 18, paddingHorizontal: 14, paddingVertical: 8, fontSize: fontSize.sm, color: t.text, backgroundColor: t.background },
-    sendBtn: { width: 38, height: 38, borderRadius: 19, backgroundColor: t.primary, alignItems: 'center', justifyContent: 'center' },
+    input: { flex: 1, maxHeight: 110, borderWidth: 1, borderColor: t.border, borderRadius: radius.xl, paddingHorizontal: 14, paddingVertical: 9, ...tx.body, fontSize: fontSize.sm, backgroundColor: t.background },
+    sendBtn: { width: 40, height: 40, borderRadius: 20, backgroundColor: t.primary, alignItems: 'center', justifyContent: 'center' },
   });
+};

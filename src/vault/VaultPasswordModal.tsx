@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
-import { ActivityIndicator, Pressable, StyleSheet, Text, TextInput } from 'react-native';
+import { StyleSheet, Text, TextInput } from 'react-native';
 import { Sheet } from '../ui/Sheet';
-import { fontSize, spacing, useTheme } from '../ui/primitives';
+import { KitButton, font, fontSize, radius, spacing, useTheme } from '../ui/primitives';
 
 /** Asks for the password once, to keep it behind the fingerprint (Alert.prompt does not exist on Android). */
 export function VaultPasswordModal({
@@ -47,18 +47,24 @@ export function VaultPasswordModal({
         onSubmitEditing={go}
       />
       {error ? <Text style={s.error}>{error}</Text> : null}
-      <Pressable accessibilityRole="button" disabled={busy || !password} onPress={go} style={({ pressed }) => [s.button, (pressed || busy || !password) && { opacity: 0.6 }]}>
-        {busy ? <ActivityIndicator color={t.textOnPrimary} /> : <Text style={s.buttonText}>Turn on</Text>}
-      </Pressable>
+      <KitButton label="Turn on" onPress={go} loading={busy} disabled={!password} style={{ marginTop: spacing.lg }} />
     </Sheet>
   );
 }
 
 const styles = (t: ReturnType<typeof useTheme>) =>
   StyleSheet.create({
-    hint: { fontSize: fontSize.sm, color: t.textMuted, lineHeight: 20, marginBottom: spacing.md },
-    input: { borderWidth: 1, borderColor: t.border, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 12, fontSize: fontSize.md, color: t.text, backgroundColor: t.background },
-    error: { color: t.danger, fontSize: fontSize.sm, marginTop: spacing.sm },
-    button: { marginTop: spacing.lg, alignItems: 'center', paddingVertical: 14, borderRadius: 12, backgroundColor: t.primary },
-    buttonText: { color: t.textOnPrimary, fontSize: 16, fontWeight: '600' },
+    hint: { ...font(t, 'regular'), fontSize: fontSize.sm, color: t.textSecondary, lineHeight: 20, marginBottom: spacing.md },
+    input: {
+      ...font(t, 'regular'),
+      borderWidth: 1,
+      borderColor: t.border,
+      borderRadius: radius.md,
+      paddingHorizontal: spacing.md,
+      minHeight: 46,
+      fontSize: fontSize.md,
+      color: t.text,
+      backgroundColor: t.surface,
+    },
+    error: { ...font(t, 'regular'), color: t.danger, fontSize: fontSize.sm, marginTop: spacing.sm },
   });

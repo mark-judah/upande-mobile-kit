@@ -1,8 +1,7 @@
-import { useEffect, useMemo, useState, type ReactNode } from 'react';
-import { Alert, Pressable, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { useEffect, useState, type ReactNode } from 'react';
+import { Alert, Pressable, Text, View } from 'react-native';
 import { router } from 'expo-router';
-import { Ionicons } from '@expo/vector-icons';
-import { CONFIG_GAP_MESSAGES, DEFAULT_DEVICES_ROUTE, getConfig, getConfigGaps, type KitTheme } from '../config';
+import { CONFIG_GAP_MESSAGES, DEFAULT_DEVICES_ROUTE, getConfig, getConfigGaps } from '../config';
 import { describeMissing, missingAdvice, missingModules } from '../modules';
 import { registerKitScreen } from '../route-guard';
 import * as Biometric from '../biometric';
@@ -11,7 +10,7 @@ import { useApkUpdate } from '../updates/UpdateProvider';
 import { compareVersions } from '../updates/releases';
 import { APP_VERSION, INSTALLED_APK_KNOWN, INSTALLED_APK_VERSION, codeLine, getServerVersions } from '../version';
 import { KIT_VERSION } from '../kit-version';
-import { fontSize, spacing, ui } from '../ui/primitives';
+import { font, fontSize, InfoRow, Row, spacing, Toggle, type, ui } from '../ui/primitives';
 import { VaultRow } from '../vault/VaultRow';
 import { cacheCredentials } from '../session/recovery';
 import { unregisterToken } from '../push';
@@ -37,7 +36,8 @@ export function SettingsScreen({
   const { Screen, Card, Button, useToast } = ui();
   const auth = cfg.useAuth();
   const { showSuccess, showError } = useToast();
-  const s = useMemo(() => styles(cfg.theme), [cfg.theme]);
+  const t = cfg.theme;
+  const tx = type(t);
 
   const name = (auth.fullName ?? '').trim();
   // The route guard learns the kit's page is what renders here (dev collision warning).
@@ -153,14 +153,18 @@ export function SettingsScreen({
   return (
     <Screen title="Settings">
       <Card>
-        <View style={s.avatarRow}>
-          <Pressable style={s.avatar} onLongPress={cfg.onAvatarLongPress} delayLongPress={2000}>
-            <Text style={s.avatarInitials}>{(name || '?').slice(0, 1).toUpperCase()}</Text>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.md }}>
+          <Pressable
+            onLongPress={cfg.onAvatarLongPress}
+            delayLongPress={2000}
+            style={{ width: 52, height: 52, borderRadius: 26, backgroundColor: t.primary, alignItems: 'center', justifyContent: 'center' }}
+          >
+            <Text style={[font(t, 'bold'), { fontSize: fontSize.lg, color: t.textOnPrimary }]}>{(name || '?').slice(0, 1).toUpperCase()}</Text>
           </Pressable>
-          <View style={{ flex: 1 }}>
-            <Text style={s.userName}>{name || 'Signed in'}</Text>
-            {auth.email ? <Text style={s.userEmail}>{auth.email}</Text> : null}
-            {auth.instanceUrl ? <Text style={s.userMeta}>{auth.instanceUrl}</Text> : null}
+          <View style={{ flex: 1, gap: 2 }}>
+            <Text style={[tx.h3, { letterSpacing: 0 }]} numberOfLines={1}>{name || 'Signed in'}</Text>
+            {auth.email ? <Text style={tx.small} numberOfLines={1}>{auth.email}</Text> : null}
+            {auth.instanceUrl ? <Text style={[tx.caption, { marginTop: 2 }]} numberOfLines={1}>{auth.instanceUrl.replace(/^https?:\/\//, '')}</Text> : null}
           </View>
         </View>
         {profileExtra}
@@ -169,7 +173,7 @@ export function SettingsScreen({
       {gaps.length ? (
         <Card title="Dev notice">
           {gaps.map((g) => (
-            <Text key={g} style={s.rowHint}>
+            <Text key={g} style={tx.small}>
               {CONFIG_GAP_MESSAGES[g]}
             </Text>
           ))}
@@ -182,21 +186,21 @@ export function SettingsScreen({
             <VaultRow />
           ) : (
             <>
-          <View style={s.row}>
-            <View style={{ flex: 1 }}>
-              <Text style={s.rowLabel}>Biometric unlock</Text>
-              <Text style={s.rowHint}>
-                {!moduleReady
-                  ? 'Install latest build to enable'
-                  : !hardwareReady
-                    ? 'Enroll fingerprint/face in device settings'
-                    : hostOwnsLock
-                      ? 'Lock the app with fingerprint or face when you come back to it'
-                      : 'Skip the password with fingerprint or face'}
-              </Text>
-            </View>
-            <Toggle value={auth.biometricEnabled} onChange={onToggleBiometric} styles={s} />
-          </View>
+          <Row
+            icon="finger-print-outline"
+            last
+            label="Biometric unlock"
+            hint={
+              !moduleReady
+                ? 'Install latest build to enable'
+                : !hardwareReady
+                  ? 'Enroll fingerprint/face in device settings'
+                  : hostOwnsLock
+                    ? 'Lock the app with fingerprint or face when you come back to it'
+                    : 'Skip the password with fingerprint or face'
+            }
+            right={<Toggle value={auth.biometricEnabled} onChange={onToggleBiometric} />}
+          />
             </>
           )}
         </Card>
@@ -206,16 +210,16 @@ export function SettingsScreen({
 
       {showMonitorRow ? (
         <Card title="Diagnostics">
-          <View style={s.row}>
-            <View style={{ flex: 1 }}>
-              <Text style={s.rowLabel}>Send crash reports</Text>
-              <Text style={s.rowHint}>Helps fix problems: errors, failed requests and device details (no passwords).</Text>
-            </View>
-            <Toggle value={sendReports} onChange={onToggleReports} styles={s} />
-          </View>
+          <Row
+            icon="pulse-outline"
+            last={!showTestActions}
+            label="Send crash reports"
+            hint="Helps fix problems: errors, failed requests and device details (no passwords)."
+            right={<Toggle value={sendReports} onChange={onToggleReports} />}
+          />
           {showTestActions ? (
             <>
-              <View style={{ height: spacing.sm }} />
+              <View style={{ height: spacing.xs }} />
               <Button label="Send test error" variant="outline" onPress={onTestError} iconLeft="bug-outline" />
             </>
           ) : null}
@@ -223,20 +227,20 @@ export function SettingsScreen({
       ) : null}
 
       <Card title="App & Server">
-        <InfoRow label="App" value={cfg.appName} styles={s} />
-        <InfoRow label="Site" value={auth.instanceUrl ? auth.instanceUrl.replace(/^https?:\/\//, '') : '—'} styles={s} />
+        <InfoRow label="App" value={cfg.appName} strong />
+        <InfoRow label="Site" value={auth.instanceUrl ? auth.instanceUrl.replace(/^https?:\/\//, '') : '—'} />
         {siteApps === null ? (
-          <InfoRow label="Apps" value="Loading…" styles={s} />
+          <InfoRow label="Apps" value="Loading…" />
         ) : siteApps.length === 0 ? (
-          <InfoRow label="Apps" value="Not available" styles={s} />
+          <InfoRow label="Apps" value="Not available" />
         ) : (
-          siteApps.map((a) => <InfoRow key={a.label} label={a.label} value={/^\d/.test(a.version) ? `v${a.version}` : a.version} styles={s} />)
+          siteApps.map((a) => <InfoRow key={a.label} label={a.label} value={/^\d/.test(a.version) ? `v${a.version}` : a.version} />)
         )}
-        <InfoRow label="Upande Mobile Kit" value={`v${KIT_VERSION}`} styles={s} />
-        <InfoRow label="Installed" value={`v${APP_VERSION}`} styles={s} />
-        {INSTALLED_APK_KNOWN ? <InfoRow label="APK" value={`v${INSTALLED_APK_VERSION}`} styles={s} /> : null}
-        <InfoRow label="Latest" value={`v${latest}`} styles={s} />
-        <InfoRow label="Code" value={codeLine()} styles={s} />
+        <InfoRow label="Upande Mobile Kit" value={`v${KIT_VERSION}`} />
+        <InfoRow label="Installed" value={`v${APP_VERSION}`} />
+        {INSTALLED_APK_KNOWN ? <InfoRow label="APK" value={`v${INSTALLED_APK_VERSION}`} /> : null}
+        <InfoRow label="Latest" value={`v${latest}`} />
+        <InfoRow label="Code" value={codeLine()} last />
         <View style={{ height: spacing.md }} />
         <ApkUpdateSection />
       </Card>
@@ -244,12 +248,12 @@ export function SettingsScreen({
       {missing.length ? (
         <Card title="Not available in this build">
           {missing.map((m) => (
-            <View key={m.pkg} style={s.missingRow}>
-              <Text style={s.rowLabel}>{describeMissing(m)}</Text>
-              <Text style={s.rowHint}>{m.pkg}</Text>
+            <View key={m.pkg} style={{ paddingVertical: 4 }}>
+              <Text style={tx.label}>{describeMissing(m)}</Text>
+              <Text style={tx.caption}>{m.pkg}</Text>
             </View>
           ))}
-          <Text style={[s.rowHint, { marginTop: spacing.sm }]}>
+          <Text style={[tx.small, { marginTop: spacing.sm }]}>
             {missingAdvice(missing)}
           </Text>
         </Card>
@@ -258,16 +262,14 @@ export function SettingsScreen({
       {extraSections}
 
       {auth.isSystemManager ? (
-        <Card>
-          <Pressable
-            accessibilityRole="button"
+        <Card title="Administration">
+          <Row
+            icon="phone-portrait-outline"
+            last
+            label="Devices"
+            hint="Every phone running this app"
             onPress={() => router.push((cfg.devicesRoute ?? DEFAULT_DEVICES_ROUTE) as never)}
-            style={({ pressed }) => [s.row, pressed && { opacity: 0.7 }]}
-          >
-            <Ionicons name="phone-portrait-outline" size={20} color={cfg.theme.textSecondary} />
-            <Text style={[s.rowLabel, { flex: 1 }]}>Devices</Text>
-            <Ionicons name="chevron-forward" size={18} color={cfg.theme.textMuted} />
-          </Pressable>
+          />
         </Card>
       ) : null}
 
@@ -279,7 +281,7 @@ export function SettingsScreen({
             <Button
               label="Forget this device"
               variant="outline"
-              color={cfg.theme.danger}
+              color={t.danger}
               onPress={onForgetDevice}
               iconLeft="trash-outline"
             />
@@ -289,64 +291,3 @@ export function SettingsScreen({
     </Screen>
   );
 }
-
-type S = ReturnType<typeof styles>;
-
-function InfoRow({ label, value, styles: s }: { label: string; value: string; styles: S }) {
-  return (
-    <View style={s.infoRow}>
-      <Text style={[s.rowLabel, s.infoLabel]}>{label}</Text>
-      <Text style={s.infoValue} numberOfLines={1}>
-        {value}
-      </Text>
-    </View>
-  );
-}
-
-function Toggle({ value, onChange, styles: s }: { value: boolean; onChange: () => void; styles: S }) {
-  return (
-    <TouchableOpacity
-      accessibilityRole="switch"
-      accessibilityState={{ checked: value }}
-      onPress={onChange}
-      activeOpacity={0.8}
-      style={[s.toggle, value && s.toggleOn]}
-    >
-      <View style={[s.toggleDot, value && s.toggleDotOn]} />
-    </TouchableOpacity>
-  );
-}
-
-const styles = (t: KitTheme) =>
-  StyleSheet.create({
-    avatarRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.md },
-    avatar: {
-      width: 44,
-      height: 44,
-      borderRadius: 22,
-      backgroundColor: t.primary,
-      alignItems: 'center',
-      justifyContent: 'center',
-    },
-    avatarInitials: { fontFamily: t.fontBold || undefined, fontSize: fontSize.md, color: t.textOnPrimary, fontWeight: '700' },
-    userName: { fontFamily: t.fontSemiBold || undefined, fontSize: fontSize.md, color: t.text, fontWeight: '600' },
-    userEmail: { fontFamily: t.fontRegular || undefined, fontSize: fontSize.sm, color: t.textSecondary, marginTop: 2 },
-    userMeta: { fontFamily: t.fontBold || undefined, fontSize: fontSize.xs, color: t.text, marginTop: 2 },
-    row: { flexDirection: 'row', alignItems: 'center', gap: spacing.md },
-    missingRow: { paddingVertical: 4 },
-    infoRow: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      justifyContent: 'space-between',
-      gap: spacing.md,
-      paddingVertical: 4,
-    },
-    infoLabel: { flexShrink: 1 },
-    infoValue: { flexShrink: 1, fontFamily: t.fontRegular || undefined, fontSize: fontSize.sm, color: t.textSecondary },
-    rowLabel: { fontFamily: t.fontSemiBold || undefined, fontSize: fontSize.sm, color: t.text, fontWeight: '600' },
-    rowHint: { fontFamily: t.fontRegular || undefined, fontSize: fontSize.xs, color: t.textMuted, marginTop: 2 },
-    toggle: { width: 46, height: 26, borderRadius: 13, backgroundColor: '#E5E5E5', padding: 3, justifyContent: 'center' },
-    toggleOn: { backgroundColor: t.text },
-    toggleDot: { width: 20, height: 20, borderRadius: 10, backgroundColor: t.surface },
-    toggleDotOn: { transform: [{ translateX: 20 }] },
-  });

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Animated, Keyboard, PanResponder, Pressable, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
+import { Animated, Keyboard, PanResponder, Pressable, StyleSheet, Text, Vibration, View, useWindowDimensions } from 'react-native';
 import { usePathname } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { DEFAULT_DEVICES_ROUTE, DEFAULT_SETTINGS_ROUTE, getConfig, KitKeys } from '../config';
@@ -10,7 +10,8 @@ import { openReportProblem } from '../support/controller';
 import { rememberScreen } from '../support/screenshot';
 import { useUpdateActivity } from '../updates/useUpdateActivity';
 import {
-  clampBottom, decodePlacement, encodePlacement, FAB_SIZE, fabVisible, isLongPress, isTap, leftFor, placementAfterDrag, resolveFab,
+  clampBottom, decodePlacement, encodePlacement, FAB_LONG_PRESS_MS, FAB_SIZE, fabVisible, HOLD_TICK_MS, holdFraction, isTap, leftFor,
+  placementAfterDrag, resolveFab,
   topFor, type FabPlacement,
 } from './fab-logic';
 
@@ -71,6 +72,54 @@ function FabOverlay() {
   }, []);
 
   const pressedAt = useRef(0);
+  // The long press: a ring fills while the button is held, the button shrinks under the finger, and at the end it
+  // buzzes and pulses once, so the person knows it registered before the report opens.
+  const [hold, setHold] = useState<number | null>(null);
+  const [opening, setOpening] = useState(false);
+  const holdTimer = useRef<ReturnType<typeof setInterval> | null>(null);
+  const triggered = useRef(false);
+  const press = useRef(new Animated.Value(1)).current;
+  const stopHold = useCallback(() => {
+    if (holdTimer.current) clearInterval(holdTimer.current);
+    holdTimer.current = null;
+    setHold(null);
+    Animated.spring(press, { toValue: 1, useNativeDriver: true, bounciness: 14, speed: 20 }).start();
+  }, [press]);
+  useEffect(() => () => { if (holdTimer.current) clearInterval(holdTimer.current); }, []);
+  const startHold = useCallback(() => {
+    triggered.current = false;
+    if (holdTimer.current) clearInterval(holdTimer.current);
+    setHold(0);
+    Animated.timing(press, { toValue: 0.88, duration: FAB_LONG_PRESS_MS, useNativeDriver: true }).start();
+    holdTimer.current = setInterval(() => {
+      const f = holdFraction(Date.now() - pressedAt.current);
+      if (f < 1) {
+        setHold(f);
+        return;
+      }
+      // Held long enough: confirm it, then open the report while the finger may still be down.
+      triggered.current = true;
+      if (holdTimer.current) clearInterval(holdTimer.current);
+      holdTimer.current = null;
+      setHold(1);
+      try {
+        Vibration.vibrate(35);
+      } catch {
+        /* no vibrator */
+      }
+      Animated.sequence([
+        Animated.timing(press, { toValue: 1.18, duration: 110, useNativeDriver: true }),
+        Animated.spring(press, { toValue: 1, useNativeDriver: true, bounciness: 12 }),
+      ]).start();
+      setOpening(true);
+      void openReportProblem()
+        .then((opened) => (opened ? undefined : openKitSettings()))
+        .finally(() => {
+          setOpening(false);
+          setHold(null);
+        });
+    }, HOLD_TICK_MS);
+  }, [press]);
   const pos = useRef(new Animated.ValueXY()).current;
   const current = useRef({ left: 0, top: 0 });
   const live = useRef({ win, insets, placement });
@@ -106,26 +155,33 @@ function FabOverlay() {
         onStartShouldSetPanResponder: () => true,
         onPanResponderGrant: () => {
           pressedAt.current = Date.now();
+          startHold();
           pos.setOffset({ x: current.current.left, y: current.current.top });
           pos.setValue({ x: 0, y: 0 });
         },
-        onPanResponderMove: Animated.event([null, { dx: pos.x, dy: pos.y }], { useNativeDriver: false }),
+        onPanResponderMove: (e, g) => {
+          // Dragging cancels the hold; the button is being moved, not pressed.
+          if (!isTap(g.dx, g.dy) && holdTimer.current) stopHold();
+          Animated.event([null, { dx: pos.x, dy: pos.y }], { useNativeDriver: false })(e, g);
+        },
         onPanResponderRelease: (_e, g) => {
           pos.flattenOffset();
+          const wasLong = triggered.current;
+          if (!wasLong) stopHold();
           if (isTap(g.dx, g.dy)) {
             pos.setValue({ x: current.current.left, y: current.current.top });
-            // A long press goes straight to "Report a problem"; a tap opens Settings. Either way the screenshot is
+            // A tap opens Settings (a long press already opened "Report a problem" while held). The screenshot is
             // taken of THIS screen first, before anything covers it.
-            if (isLongPress(Date.now() - pressedAt.current)) void openReportProblem().then((opened) => (opened ? undefined : openKitSettings()));
-            else void rememberScreen().finally(openKitSettings);
+            if (!wasLong) void rememberScreen().finally(openKitSettings);
           } else settle({ dx: g.dx, dy: g.dy });
         },
         onPanResponderTerminate: () => {
+          stopHold();
           pos.flattenOffset();
           pos.setValue({ x: current.current.left, y: current.current.top });
         },
       }),
-    [pos, settle],
+    [pos, settle, startHold, stopHold],
   );
 
   if (!fabVisible({ settings, pathname, routes, keyboardOpen, signedOut })) return null;
@@ -137,10 +193,14 @@ function FabOverlay() {
         accessible
         accessibilityRole="button"
         accessibilityLabel={activityLabel(activity)}
-        style={[styles.fab, { backgroundColor: cfg.theme.primary, transform: pos.getTranslateTransform() }]}
+        style={[styles.fab, { backgroundColor: cfg.theme.primary, opacity: hold != null ? 1 : 0.9, transform: [...pos.getTranslateTransform(), { scale: press }] }]}
       >
-        <Ionicons name="settings-outline" size={22} color={cfg.theme.textOnPrimary} />
-        {activity ? (
+        <Ionicons name={opening ? 'camera' : hold != null && hold > 0.25 ? 'camera-outline' : 'settings-outline'} size={22} color={cfg.theme.textOnPrimary} />
+        {hold != null ? (
+          <View pointerEvents="none" style={styles.ringHost}>
+            <ProgressRing size={RING_SIZE} fraction={Math.max(hold, 0.02)} color={cfg.theme.primary} trackColor={cfg.theme.border} dot={5} />
+          </View>
+        ) : activity ? (
           <View pointerEvents="none" style={styles.ringHost}>
             <ProgressRing size={RING_SIZE} fraction={activity.fraction} color={cfg.theme.primary} trackColor={cfg.theme.border} />
           </View>

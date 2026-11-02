@@ -298,6 +298,15 @@ export function UpdateProvider({ children }: { children: ReactNode }) {
 
   /** Versions already handled this run, so a re-render never repeats them. */
   const autoTried = useRef<string | null>(null);
+  // Bumped each time the app comes back to the foreground: a download that was skipped (Wi-Fi only, on mobile data)
+  // or interrupted gets another chance, instead of waiting for the next cold start.
+  const [resumeTick, setResumeTick] = useState(0);
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', (state) => {
+      if (state === 'active') setResumeTick((n) => n + 1);
+    });
+    return () => sub.remove();
+  }, []);
   const prompted = useRef<string | null>(null);
   /** The person pressed the Settings button: no prompt on top of their own action. */
   const manual = useRef(false);
@@ -315,8 +324,9 @@ export function UpdateProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     const apk = check?.available ? check.apk : null;
-    if (!apk || !canInstallInApp() || autoTried.current === apk.version) return;
-    autoTried.current = apk.version;
+    const attempt = `${apk?.version}|${resumeTick}`;
+    if (!apk || !canInstallInApp() || autoTried.current === attempt) return;
+    autoTried.current = attempt;
     runAutoDownload({
       onDisk: async () => !!(await findDownloadedApk(apk.downloadUrl, { fileName: apk.assetName, expectedBytes: apk.sizeBytes })),
       mode: getAutoDownloadMode,
@@ -325,7 +335,7 @@ export function UpdateProvider({ children }: { children: ReactNode }) {
     }).catch(() => {
       // Silent: the Settings button still works, and the next check retries.
     });
-  }, [check, install]);
+  }, [check, install, resumeTick]);
 
   useEffect(() => {
     const apk = check?.available ? check.apk : null;

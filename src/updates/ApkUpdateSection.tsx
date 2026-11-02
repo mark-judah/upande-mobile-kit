@@ -1,7 +1,8 @@
 import { useCallback, useMemo, useState } from 'react';
-import { Linking, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Linking, Platform, StyleSheet, Text, View } from 'react-native';
 import * as Updates from 'expo-updates';
-import { ui, useTheme, spacing, fontSize } from '../ui/primitives';
+import { Ionicons } from '@expo/vector-icons';
+import { font, fontSize, Pill, radius, Segmented, spacing, type, ui, useTheme } from '../ui/primitives';
 import { formatBytes, releasesPageUrl } from './releases';
 import { openInBrowser, openUnknownAppSourcesSettings } from './install-apk';
 import { useApkUpdate } from './UpdateProvider';
@@ -29,6 +30,7 @@ export function ApkUpdateSection() {
   const { Button, useToast, showDialog, useOnline } = ui();
   const t = useTheme();
   const s = useMemo(() => styles(t), [t]);
+  const tx = type(t);
   const { showSuccess, showError } = useToast();
   const [otaChecking, setOtaChecking] = useState(false);
   const online = useOnline();
@@ -127,35 +129,44 @@ export function ApkUpdateSection() {
     );
   }, [installError, apk]);
 
-  let status: string | null = null;
-  if (check) {
-    // Only news is shown: being up to date needs no line of its own.
-    if (ready && apk) status = `v${apk.version} is downloaded and ready to install.`;
-    else if (available && apk) status = `v${apk.version} is available as a new APK.`;
-  }
+  const waitingForWifi = available && !!apk && !ready && !downloading && mode === 'wifi';
+  const waitingOff = available && !!apk && !ready && !downloading && mode === 'never';
+  const fraction = progress?.fraction ?? null;
 
   return (
-    <View>
-      {Platform.OS === 'android' && mode ? (
-        <View style={s.modeBlock}>
-          <Text style={s.modeTitle}>Download updates</Text>
-          <View style={s.modeRow}>
-            {MODE_LABELS.map(([value, text]) => (
-              <Pressable
-                key={value}
-                accessibilityRole="radio"
-                accessibilityState={{ selected: mode === value }}
-                onPress={() => setMode(value)}
-                style={[s.modeChip, mode === value && s.modeChipOn]}
-              >
-                <Text style={[s.modeChipText, mode === value && s.modeChipTextOn]}>{text}</Text>
-              </Pressable>
-            ))}
+    <View style={{ gap: spacing.md }}>
+      {check && available && apk ? (
+        <View style={s.panel}>
+          <View style={s.panelHead}>
+            <View style={s.panelIcon}>
+              <Ionicons name={ready ? 'checkmark-circle-outline' : downloading ? 'cloud-download-outline' : 'arrow-down-circle-outline'} size={18} color={t.text} />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={tx.label}>{ready ? 'Ready to install' : downloading ? 'Downloading update' : 'Update available'}</Text>
+              <Text style={[tx.small, { fontSize: fontSize.xs }]}>
+                {`v${apk.version}${formatBytes(apk.sizeBytes) ? ` · ${formatBytes(apk.sizeBytes)}` : ''}`}
+              </Text>
+            </View>
+            <Pill label={ready ? 'Downloaded' : downloading ? (fraction == null ? 'Working' : `${Math.round(fraction * 100)}%`) : 'New'} tone={ready ? 'success' : 'warning'} />
           </View>
-          <Text style={s.hint}>{MODE_LABELS.find(([v]) => v === mode)?.[2]} Android asks you to confirm each install.</Text>
+          {downloading ? (
+            <View style={s.track}>
+              <View style={[s.fill, { width: `${Math.round((fraction ?? 0.04) * 100)}%` }]} />
+            </View>
+          ) : null}
+          <Text style={[tx.small, { fontSize: fontSize.xs }]}>
+            {ready
+              ? 'It is downloaded. Install it to get the latest version.'
+              : downloading
+                ? 'Downloading in the background. The progress also shows around the settings button.'
+                : waitingForWifi
+                  ? 'It downloads by itself as soon as you are on Wi-Fi.'
+                  : waitingOff
+                    ? 'Automatic downloads are off. Tap the button to download it.'
+                    : 'It starts downloading by itself.'}
+          </Text>
         </View>
       ) : null}
-      {status ? <Text style={[s.hint, available && s.accent]}>{status}</Text> : null}
       {checkError && !(checkError.kind === 'offline' && !online) ? (
         <Text style={s.error}>
           {checkError.message}
@@ -171,7 +182,6 @@ export function ApkUpdateSection() {
           {installError.message} <Text style={s.link}>What now?</Text>
         </Text>
       ) : null}
-      <View style={{ height: spacing.sm }} />
       <Button
         label={label}
         variant={available || downloading ? 'primary' : 'outline'}
@@ -180,21 +190,24 @@ export function ApkUpdateSection() {
         disabled={downloading}
         iconLeft={ready ? 'checkmark-circle-outline' : available ? 'download-outline' : 'cloud-download-outline'}
       />
+      {Platform.OS === 'android' && mode ? (
+        <View style={{ gap: spacing.sm }}>
+          <Text style={tx.section}>Download updates</Text>
+          <Segmented value={mode} onChange={setMode} options={MODE_LABELS.map(([value, text]) => ({ value, label: text }))} />
+          <Text style={[tx.small, { fontSize: fontSize.xs }]}>{MODE_LABELS.find(([v]) => v === mode)?.[2]} Android asks you to confirm each install.</Text>
+        </View>
+      ) : null}
     </View>
   );
 }
 
 const styles = (t: KitTheme) =>
   StyleSheet.create({
-    hint: { fontFamily: t.fontRegular || undefined, fontSize: fontSize.xs, color: t.textMuted, marginTop: spacing.sm },
-    accent: { fontFamily: t.fontSemiBold || undefined, color: t.primary },
-    error: { fontFamily: t.fontRegular || undefined, fontSize: fontSize.xs, color: t.danger, marginTop: spacing.sm },
-    modeBlock: { marginBottom: spacing.sm },
-    modeTitle: { fontFamily: t.fontSemiBold || undefined, fontSize: fontSize.sm, color: t.text, fontWeight: '600' },
-    modeRow: { flexDirection: 'row', gap: spacing.sm, marginTop: spacing.sm, flexWrap: 'wrap' },
-    modeChip: { paddingVertical: 6, paddingHorizontal: 12, borderRadius: 16, borderWidth: 1, borderColor: t.border, backgroundColor: t.surface },
-    modeChipOn: { backgroundColor: t.primary, borderColor: t.primary },
-    modeChipText: { fontFamily: t.fontMedium || undefined, fontSize: fontSize.xs, color: t.textSecondary },
-    modeChipTextOn: { color: t.textOnPrimary },
-    link: { fontFamily: t.fontSemiBold || undefined, color: t.primary, textDecorationLine: 'underline' },
+    panel: { backgroundColor: t.surfaceAlt, borderRadius: radius.md, padding: spacing.md, gap: spacing.sm },
+    panelHead: { flexDirection: 'row', alignItems: 'center', gap: spacing.md },
+    panelIcon: { width: 34, height: 34, borderRadius: 10, backgroundColor: t.surface, alignItems: 'center', justifyContent: 'center' },
+    track: { height: 6, borderRadius: 3, backgroundColor: t.border, overflow: 'hidden' },
+    fill: { height: 6, borderRadius: 3, backgroundColor: t.primary },
+    error: { ...font(t, 'regular'), fontSize: fontSize.xs, color: t.danger },
+    link: { ...font(t, 'semiBold'), color: t.text, textDecorationLine: 'underline' },
   });

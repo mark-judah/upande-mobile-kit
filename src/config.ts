@@ -54,6 +54,9 @@ export type KitTheme = {
   background: string;
   border: string;
   danger: string;
+  /** Status colours: success (done, online), warning (waiting, attention). */
+  success: string;
+  warning: string;
   /** Font family names; empty string uses the platform font. */
   fontRegular: string;
   fontMedium: string;
@@ -61,21 +64,29 @@ export type KitTheme = {
   fontBold: string;
 };
 
+/**
+ * The Upande design system: a monochrome chrome (near-black primary, neutral greys, white cards with a hairline
+ * border), DM Sans for text and Poppins for headings, colour only for status. These match the fleet's apps; an app
+ * with its own tokens passes `theme` and the whole kit follows. The fonts are used when the app has loaded them
+ * (`@expo-google-fonts/dm-sans`, `@expo-google-fonts/poppins`) and quietly fall back to the system font when not.
+ */
 export const DEFAULT_THEME: KitTheme = {
-  primary: '#1F6F43',
-  text: '#111111',
-  textSecondary: '#555555',
-  textMuted: '#888888',
+  primary: '#171717',
+  text: '#171717',
+  textSecondary: '#525252',
+  textMuted: '#A3A3A3',
   textOnPrimary: '#FFFFFF',
   surface: '#FFFFFF',
-  surfaceAlt: '#F3F3F3',
-  background: '#F7F7F7',
-  border: '#E3E3E3',
-  danger: '#B91C1C',
-  fontRegular: '',
-  fontMedium: '',
-  fontSemiBold: '',
-  fontBold: '',
+  surfaceAlt: '#F5F5F5',
+  background: '#FAFAFA',
+  border: '#E5E5E5',
+  danger: '#EF4444',
+  success: '#22C55E',
+  warning: '#F59E0B',
+  fontRegular: 'DMSans_400Regular',
+  fontMedium: 'DMSans_500Medium',
+  fontSemiBold: 'Poppins_600SemiBold',
+  fontBold: 'Poppins_700Bold',
 };
 
 export type KitDialogButton = { text: string; style?: 'cancel' | 'default' | 'destructive'; onPress?: () => void };

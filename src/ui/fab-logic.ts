@@ -112,3 +112,8 @@ export const FAB_LONG_PRESS_MS = 600;
 
 /** A press held still for `FAB_LONG_PRESS_MS` or more. The floating button opens "Report a problem" on it. */
 export const isLongPress = (heldMs: number): boolean => heldMs >= FAB_LONG_PRESS_MS;
+
+/** How far through the long press the hold is, 0 to 1 (drives the ring that fills while the button is held). */
+export const holdFraction = (heldMs: number): number => Math.min(1, Math.max(0, heldMs / FAB_LONG_PRESS_MS));
+/** How often the hold ring redraws while the button is held. */
+export const HOLD_TICK_MS = 40;

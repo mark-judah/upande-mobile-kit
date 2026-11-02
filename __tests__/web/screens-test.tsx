@@ -192,7 +192,8 @@ describe('help card and fingerprint vault', () => {
     const html = renderToString(<SettingsScreen />);
     expect(html).toContain('>Help<');
     expect(html).toContain('Report a problem');
-    expect(html).toContain('Chat with support');
+    expect(html).toContain('My reports');
+    expect(html).toContain('Ask support');
     expect(html).toContain('What&#x27;s new');
   });
   it('lets the app turn each tool off, and the whole card when none is left', () => {

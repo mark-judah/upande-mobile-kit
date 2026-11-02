@@ -1,31 +1,47 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, AppState, FlatList, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, AppState, FlatList, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { getConfig } from '../config';
 import { Sheet } from '../ui/Sheet';
-import { fontSize, spacing, ui, useTheme } from '../ui/primitives';
+import { EmptyState, KitButton, Pill, font, fontSize, radius, spacing, tint, type, ui, useTheme } from '../ui/primitives';
 import { offerReplyNotifications } from '../push';
 import { ChatModal } from './ChatModal';
 import { collectDiagnostics } from './diagnostics';
-import { fetchThread, fetchThreads, markSeen, loadSeen, mergeMessages, replyThread, submitReport, unreadThreads, type ChatMessage, type ThreadSummary } from './support-api';
+import {
+  fetchThread,
+  fetchThreads,
+  loadSeen,
+  markSeen,
+  mergeMessages,
+  replyThread,
+  submitReport,
+  unreadThreads,
+  type ChatMessage,
+  type ThreadEvent,
+  type ThreadInfo,
+  type ThreadSummary,
+} from './support-api';
+import { buildTimeline, canReply, formatWhen, mergeEvents, statusHint, statusTone, type TimelineItem } from './thread-logic';
 
 const POLL_MS = 6000;
+const LIST_POLL_MS = 15000;
 
 type View_ = { kind: 'loading' } | { kind: 'legacy' } | { kind: 'list' } | { kind: 'thread'; id: string; subject: string } | { kind: 'new' };
 
 /**
- * "Chat with support". On a site with Issues a conversation IS an Issue: the person's reports and questions are listed,
- * support answers with a Comment on the Issue (the way your team already works), and the answer shows here. Sites
- * without Issues use the single-thread chat instead.
+ * "My reports". On a site with Issues a conversation IS an Issue: the person's reports and questions are listed with
+ * their status, support answers with a Comment on the Issue (the way the team already works), and each answer and
+ * each change of status shows in the conversation's timeline. Sites without Issues use the single-thread chat.
  */
-export function SupportInbox({ onClose, initialThread }: { onClose: () => void; initialThread?: string }) {
+export function SupportInbox({ onClose, initialThread, startNew }: { onClose: () => void; initialThread?: string; startNew?: boolean }) {
   const cfg = getConfig();
   const t = useTheme();
   const s = useMemo(() => styles(t), [t]);
-  const [view, setView] = useState<View_>(initialThread ? { kind: 'thread', id: initialThread, subject: '' } : { kind: 'loading' });
+  const [view, setView] = useState<View_>(initialThread ? { kind: 'thread', id: initialThread, subject: '' } : startNew ? { kind: 'new' } : { kind: 'loading' });
   const [threads, setThreads] = useState<ThreadSummary[]>([]);
   const [seen, setSeen] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
 
   const loadList = useCallback(async () => {
     try {
@@ -48,6 +64,16 @@ export function SupportInbox({ onClose, initialThread }: { onClose: () => void; 
     void loadList();
   }, [loadList]);
 
+  // Keep the list fresh while it is the open view: answers and status changes appear without a pull.
+  const onList = view.kind === 'list';
+  useEffect(() => {
+    if (!onList) return;
+    const timer = setInterval(() => {
+      if (AppState.currentState === 'active') void loadList();
+    }, LIST_POLL_MS);
+    return () => clearInterval(timer);
+  }, [onList, loadList]);
+
   if (view.kind === 'legacy') return <ChatModal onClose={onClose} />;
 
   const back = () => {
@@ -60,39 +86,46 @@ export function SupportInbox({ onClose, initialThread }: { onClose: () => void; 
 
   const unread = new Set(unreadThreads(threads, seen));
   return (
-    <Sheet
-      title="Chat with support"
-      tall
-      onClose={onClose}
-      footer={
-        <Pressable accessibilityRole="button" onPress={() => setView({ kind: 'new' })} style={s.primary}>
-          <Text style={s.primaryText}>New message</Text>
-        </Pressable>
-      }
-    >
+    <Sheet title="My reports" tall onClose={onClose} footer={<View style={{ marginTop: spacing.md }}><KitButton label="New message" iconLeft="create-outline" onPress={() => setView({ kind: 'new' })} /></View>}>
       {view.kind === 'loading' ? (
-        <ActivityIndicator style={{ marginTop: 40 }} color={t.primary} />
+        <ActivityIndicator style={{ marginTop: 40 }} color={t.text} />
       ) : (
-        <ScrollView>
-          {error ? <Text style={s.error}>{error}</Text> : null}
-          {threads.length === 0 && !error ? <Text style={s.empty}>No conversations yet. Send a message and someone from the team will reply here.</Text> : null}
-          {threads.map((th) => (
-            <Pressable key={th.id} accessibilityRole="button" onPress={() => setView({ kind: 'thread', id: th.id, subject: th.subject })} style={s.row}>
-              <View style={{ flex: 1 }}>
-                <Text style={[s.subject, unread.has(th.id) && { fontWeight: '700' }]} numberOfLines={1}>
-                  {th.subject}
-                </Text>
-                <Text style={s.preview} numberOfLines={1}>
+        <FlatList
+          data={threads}
+          keyExtractor={(th) => th.id}
+          contentContainerStyle={{ gap: spacing.sm, paddingBottom: spacing.sm }}
+          refreshing={refreshing}
+          onRefresh={() => {
+            setRefreshing(true);
+            void loadList().finally(() => setRefreshing(false));
+          }}
+          ListHeaderComponent={error ? <Text style={s.error}>{error}</Text> : undefined}
+          ListEmptyComponent={
+            error ? undefined : (
+              <EmptyState icon="chatbubbles-outline" title="No reports yet" subtitle="Send a report or a question and the answer, and every change of status, will show here." />
+            )
+          }
+          renderItem={({ item: th }) => {
+            const isUnread = unread.has(th.id);
+            return (
+              <Pressable accessibilityRole="button" onPress={() => setView({ kind: 'thread', id: th.id, subject: th.subject })} style={({ pressed }) => [s.card, pressed && { opacity: 0.7 }]}>
+                <View style={s.cardTop}>
+                  <Text style={[s.subject, isUnread && font(t, 'bold')]} numberOfLines={1}>
+                    {th.subject}
+                  </Text>
+                  {isUnread ? <View style={s.dot} accessibilityLabel="New reply" /> : null}
+                </View>
+                <Text style={s.preview} numberOfLines={2}>
                   {th.preview || '—'}
                 </Text>
-              </View>
-              <View style={{ alignItems: 'flex-end', gap: 4 }}>
-                <Text style={s.status}>{th.status}</Text>
-                {unread.has(th.id) ? <View style={s.dot} /> : null}
-              </View>
-            </Pressable>
-          ))}
-        </ScrollView>
+                <View style={s.cardBottom}>
+                  <Pill label={th.status} tone={statusTone(th.status)} />
+                  <Text style={s.when}>{formatWhen(th.last_activity)}</Text>
+                </View>
+              </Pressable>
+            );
+          }}
+        />
       )}
     </Sheet>
   );
@@ -103,20 +136,21 @@ function ThreadView({ id, subject, onBack, onClose }: { id: string; subject: str
   const t = useTheme();
   const s = useMemo(() => styles(t), [t]);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
-  const [status, setStatus] = useState('');
-  const [title, setTitle] = useState(subject);
+  const [events, setEvents] = useState<ThreadEvent[]>([]);
+  const [info, setInfo] = useState<ThreadInfo | null>(null);
   const [draft, setDraft] = useState('');
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const list = useRef<FlatList<ChatMessage>>(null);
+  const list = useRef<FlatList<TimelineItem>>(null);
 
   const pull = useCallback(async () => {
     try {
       const r = await fetchThread(id);
-      setStatus(r.thread.status);
-      if (r.thread.subject) setTitle(r.thread.subject);
+      setInfo(r.thread);
       setMessages((cur) => mergeMessages(cur, r.messages));
+      setEvents((cur) => mergeEvents(cur, r.events));
       const lastStaff = [...r.messages].reverse().find((m) => m.from_staff);
       if (lastStaff) void markSeen(id, lastStaff.sent_at);
       setError(null);
@@ -143,6 +177,7 @@ function ThreadView({ id, subject, onBack, onClose }: { id: string; subject: str
     try {
       const m = await replyThread(id, text);
       setMessages((cur) => mergeMessages(cur, [m]));
+      void pull(); // a reply on an answered report reopens it: pick the new status up now
     } catch (err) {
       setDraft(text);
       setError(cfg.errorMessage ? cfg.errorMessage(err) : "Couldn't send. Try again.");
@@ -151,44 +186,97 @@ function ThreadView({ id, subject, onBack, onClose }: { id: string; subject: str
     }
   };
 
-  const closed = status === 'Closed';
+  const status = info?.status ?? '';
+  const timeline = useMemo(() => buildTimeline(messages, events), [messages, events]);
+  const open = !status || canReply(status);
+
+  const header = info ? (
+    <View style={s.statusCard}>
+      <View style={s.statusTop}>
+        <Pill label={status} tone={statusTone(status)} />
+        <Text style={s.when}>{info.created ? `Sent ${formatWhen(info.created)}` : ''}</Text>
+      </View>
+      {statusHint(status) ? <Text style={s.hintText}>{statusHint(status)}</Text> : null}
+      {info.has_screenshot ? (
+        <View style={s.attach}>
+          <Ionicons name="image-outline" size={14} color={t.textSecondary} />
+          <Text style={s.hintText}>Screenshot attached to your report</Text>
+        </View>
+      ) : null}
+    </View>
+  ) : null;
+
   return (
-    <Sheet title={title || 'Conversation'} tall onClose={onClose}>
-      <Pressable accessibilityRole="button" onPress={onBack} style={{ paddingBottom: spacing.sm }}>
-        <Text style={s.link}>‹ All conversations{status ? ` · ${status}` : ''}</Text>
+    <Sheet title={info?.subject || subject || 'Conversation'} tall onClose={onClose}>
+      <Pressable accessibilityRole="button" onPress={onBack} hitSlop={8} style={s.back}>
+        <Ionicons name="chevron-back" size={16} color={t.text} />
+        <Text style={s.backText}>All reports</Text>
       </Pressable>
       <View style={{ flex: 1 }}>
         {loading ? (
-          <ActivityIndicator style={{ marginTop: 40 }} color={t.primary} />
+          <ActivityIndicator style={{ marginTop: 40 }} color={t.text} />
         ) : (
           <FlatList
             ref={list}
-            data={messages}
-            keyExtractor={(m) => m.id}
-            contentContainerStyle={{ gap: 6, paddingVertical: 8 }}
+            data={timeline}
+            keyExtractor={(i) => i.id}
+            ListHeaderComponent={header ?? undefined}
+            contentContainerStyle={{ gap: spacing.sm, paddingBottom: spacing.sm }}
+            refreshing={refreshing}
+            onRefresh={() => {
+              setRefreshing(true);
+              void pull().finally(() => setRefreshing(false));
+            }}
             onContentSizeChange={() => list.current?.scrollToEnd({ animated: false })}
-            renderItem={({ item }) => (
-              <View style={[s.bubbleRow, !item.from_staff && { justifyContent: 'flex-end' }]}>
-                <View style={[s.bubble, item.from_staff ? s.theirs : s.mine]}>
-                  <Text style={[s.text, !item.from_staff && { color: t.textOnPrimary }]}>{item.text}</Text>
-                </View>
-              </View>
-            )}
+            renderItem={({ item, index }) => (item.kind === 'event' ? <EventLine item={item} s={s} t={t} /> : <Bubble message={item.message} first={index === 0 || timeline[index - 1].kind === 'event'} s={s} t={t} />)}
           />
         )}
         {error ? <Text style={s.error}>{error}</Text> : null}
-        {closed ? (
-          <Text style={s.empty}>This conversation is closed. Start a new message if you need more help.</Text>
-        ) : (
+        {open ? (
           <View style={s.composer}>
-            <TextInput style={s.input} value={draft} onChangeText={setDraft} placeholder="Type a message" placeholderTextColor={t.textMuted} multiline editable={!sending} />
-            <Pressable accessibilityRole="button" accessibilityLabel="Send" disabled={!draft.trim() || sending} onPress={send} style={[s.send, (!draft.trim() || sending) && { opacity: 0.5 }]}>
-              <Ionicons name="arrow-up" size={18} color={t.textOnPrimary} />
+            <TextInput style={s.input} value={draft} onChangeText={setDraft} placeholder="Write a reply" placeholderTextColor={t.textMuted} multiline editable={!sending} />
+            <Pressable accessibilityRole="button" accessibilityLabel="Send" disabled={!draft.trim() || sending} onPress={send} style={[s.send, (!draft.trim() || sending) && { opacity: 0.4 }]}>
+              {sending ? <ActivityIndicator size="small" color={t.textOnPrimary} /> : <Ionicons name="arrow-up" size={18} color={t.textOnPrimary} />}
             </Pressable>
+          </View>
+        ) : (
+          <View style={s.closedNote}>
+            <Ionicons name="lock-closed-outline" size={15} color={t.textSecondary} />
+            <Text style={[s.hintText, { flex: 1 }]}>This conversation is closed. Start a new message if you need more help.</Text>
           </View>
         )}
       </View>
     </Sheet>
+  );
+}
+
+type S = ReturnType<typeof styles>;
+type T = ReturnType<typeof useTheme>;
+
+function Bubble({ message, first, s, t }: { message: ChatMessage; first: boolean; s: S; t: T }) {
+  const staff = message.from_staff;
+  return (
+    <View style={{ alignItems: staff ? 'flex-start' : 'flex-end' }}>
+      {first ? <Text style={s.who}>{`${staff ? 'Support' : 'You'} · ${formatWhen(message.sent_at)}`}</Text> : null}
+      <View style={[s.bubble, staff ? s.theirs : s.mine]}>
+        <Text style={[s.text, !staff && { color: t.textOnPrimary }]}>{message.text}</Text>
+      </View>
+      {!first ? <Text style={s.time}>{formatWhen(message.sent_at)}</Text> : null}
+    </View>
+  );
+}
+
+function EventLine({ item, s, t }: { item: Extract<TimelineItem, { kind: 'event' }>; s: S; t: T }) {
+  const icon = item.event.status === 'Resolved' ? 'checkmark-circle-outline' : item.event.status === 'Closed' ? 'lock-closed-outline' : item.event.status === 'Replied' ? 'chatbubble-ellipses-outline' : 'ellipse-outline';
+  return (
+    <View style={s.event} accessibilityRole="text">
+      <View style={s.eventRule} />
+      <View style={s.eventChip}>
+        <Ionicons name={icon} size={12} color={t.textSecondary} />
+        <Text style={s.eventText}>{`${item.text} · ${formatWhen(item.at)}`}</Text>
+      </View>
+      <View style={s.eventRule} />
+    </View>
   );
 }
 
@@ -223,44 +311,52 @@ function NewMessage({ onBack, onClose, onCreated }: { onBack: () => void; onClos
   };
 
   return (
-    <Sheet
-      title="New message"
-      onClose={busy ? () => {} : onClose}
-      footer={
-        <Pressable accessibilityRole="button" disabled={busy} onPress={send} style={[s.primary, busy && { opacity: 0.6 }]}>
-          {busy ? <ActivityIndicator color={t.textOnPrimary} /> : <Text style={s.primaryText}>Send</Text>}
-        </Pressable>
-      }
-    >
-      <Pressable accessibilityRole="button" onPress={onBack} style={{ paddingBottom: spacing.sm }}>
-        <Text style={s.link}>‹ All conversations</Text>
+    <Sheet title="New message" onClose={busy ? () => {} : onClose} footer={<View style={{ marginTop: spacing.md }}><KitButton label="Send" iconLeft="paper-plane-outline" loading={busy} onPress={send} /></View>}>
+      <Pressable accessibilityRole="button" onPress={onBack} hitSlop={8} style={s.back}>
+        <Ionicons name="chevron-back" size={16} color={t.text} />
+        <Text style={s.backText}>All reports</Text>
       </Pressable>
-      <TextInput style={s.field} value={subject} onChangeText={setSubject} placeholder="Subject" placeholderTextColor={t.textMuted} maxLength={140} editable={!busy} />
-      <TextInput style={[s.field, { minHeight: 100, textAlignVertical: 'top', marginTop: spacing.md }]} value={text} onChangeText={setText} multiline placeholder="What would you like to ask?" placeholderTextColor={t.textMuted} editable={!busy} />
+      <Text style={s.label}>Subject</Text>
+      <TextInput style={s.field} value={subject} onChangeText={setSubject} placeholder="What is it about?" placeholderTextColor={t.textMuted} maxLength={140} editable={!busy} />
+      <Text style={[s.label, { marginTop: spacing.md }]}>Message</Text>
+      <TextInput style={[s.field, { minHeight: 100, textAlignVertical: 'top' }]} value={text} onChangeText={setText} multiline placeholder="What would you like to ask?" placeholderTextColor={t.textMuted} editable={!busy} />
       {error ? <Text style={s.error}>{error}</Text> : null}
     </Sheet>
   );
 }
 
-const styles = (t: ReturnType<typeof useTheme>) =>
-  StyleSheet.create({
-    row: { flexDirection: 'row', alignItems: 'center', gap: spacing.md, paddingVertical: spacing.md, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: t.border },
-    subject: { fontSize: fontSize.sm, fontWeight: '600', color: t.text },
-    preview: { fontSize: fontSize.xs, color: t.textMuted, marginTop: 2 },
-    status: { fontSize: fontSize.xs, color: t.textMuted },
-    dot: { width: 10, height: 10, borderRadius: 5, backgroundColor: t.danger },
-    empty: { textAlign: 'center', color: t.textMuted, fontSize: fontSize.sm, marginTop: 32, marginBottom: 12 },
-    error: { color: t.danger, fontSize: fontSize.xs, marginVertical: 4 },
-    link: { color: t.primary, fontSize: fontSize.sm, fontWeight: '500' },
-    primary: { marginTop: spacing.md, alignItems: 'center', paddingVertical: 14, borderRadius: 12, backgroundColor: t.primary },
-    primaryText: { color: t.textOnPrimary, fontSize: 16, fontWeight: '600' },
-    bubbleRow: { flexDirection: 'row', justifyContent: 'flex-start' },
-    bubble: { maxWidth: '82%', borderRadius: 14, paddingHorizontal: 12, paddingVertical: 8 },
-    theirs: { backgroundColor: t.surfaceAlt },
-    mine: { backgroundColor: t.primary },
-    text: { fontSize: fontSize.sm, color: t.text },
+const styles = (t: T) => {
+  const tx = type(t);
+  return StyleSheet.create({
+    card: { backgroundColor: t.surface, borderRadius: radius.md, borderWidth: StyleSheet.hairlineWidth, borderColor: t.border, padding: spacing.md, gap: 6 },
+    cardTop: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
+    cardBottom: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 2 },
+    subject: { ...tx.label, flex: 1 },
+    preview: { ...tx.small, lineHeight: 18 },
+    when: { ...tx.caption },
+    dot: { width: 9, height: 9, borderRadius: 5, backgroundColor: t.danger },
+    error: { ...tx.small, color: t.danger, marginVertical: 4 },
+    back: { flexDirection: 'row', alignItems: 'center', gap: 2, alignSelf: 'flex-start', paddingBottom: spacing.sm },
+    backText: { ...tx.label, fontSize: fontSize.xs },
+    statusCard: { backgroundColor: t.surfaceAlt, borderRadius: radius.md, padding: spacing.md, gap: 6, marginBottom: spacing.sm },
+    statusTop: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+    hintText: { ...tx.small, fontSize: fontSize.xs, lineHeight: 17 },
+    attach: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+    who: { ...tx.caption, marginBottom: 3 },
+    time: { ...tx.caption, marginTop: 2 },
+    bubble: { maxWidth: '84%', borderRadius: radius.lg, paddingHorizontal: 13, paddingVertical: 9 },
+    theirs: { backgroundColor: t.surfaceAlt, borderTopLeftRadius: 4 },
+    mine: { backgroundColor: t.primary, borderTopRightRadius: 4 },
+    text: { ...tx.body, fontSize: fontSize.sm, lineHeight: 19 },
+    event: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingVertical: 4 },
+    eventRule: { flex: 1, height: StyleSheet.hairlineWidth, backgroundColor: t.border },
+    eventChip: { flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 10, paddingVertical: 3, borderRadius: radius.full, backgroundColor: tint(t.border, 0.5) },
+    eventText: { ...tx.caption, color: t.textSecondary },
     composer: { flexDirection: 'row', alignItems: 'flex-end', gap: spacing.sm, paddingTop: spacing.sm },
-    input: { flex: 1, maxHeight: 110, borderWidth: 1, borderColor: t.border, borderRadius: 18, paddingHorizontal: 14, paddingVertical: 8, fontSize: fontSize.sm, color: t.text, backgroundColor: t.background },
-    send: { width: 38, height: 38, borderRadius: 19, backgroundColor: t.primary, alignItems: 'center', justifyContent: 'center' },
-    field: { borderWidth: 1, borderColor: t.border, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 10, fontSize: fontSize.sm, color: t.text, backgroundColor: t.background },
+    input: { flex: 1, maxHeight: 110, borderWidth: 1, borderColor: t.border, borderRadius: radius.xl, paddingHorizontal: 14, paddingVertical: 9, ...tx.body, fontSize: fontSize.sm, backgroundColor: t.background },
+    send: { width: 40, height: 40, borderRadius: 20, backgroundColor: t.primary, alignItems: 'center', justifyContent: 'center' },
+    closedNote: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, backgroundColor: t.surfaceAlt, borderRadius: radius.md, padding: spacing.md, marginTop: spacing.sm },
+    label: { ...tx.caption, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 6 },
+    field: { borderWidth: 1, borderColor: t.border, borderRadius: radius.md, paddingHorizontal: 12, paddingVertical: 11, ...tx.body, fontSize: fontSize.sm, backgroundColor: t.background },
   });
+};

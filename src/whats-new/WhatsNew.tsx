@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState } from 'react';
+import { Ionicons } from '@expo/vector-icons';
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { getConfig, KitKeys } from '../config';
 import { Sheet } from '../ui/Sheet';
-import { fontSize, spacing, useTheme } from '../ui/primitives';
+import { KitButton, font, fontSize, spacing, type as typeStyles, useTheme } from '../ui/primitives';
 import { APP_VERSION } from '../version';
 import { parseReleaseNotes, shouldShowWhatsNew, splitNotes, type NoteSection } from './notes';
 
@@ -34,39 +35,42 @@ export function WhatsNewSheet({ version, sections, loading, onClose }: { version
   return (
     <Sheet title={`What's new in v${version}`} onClose={onClose}>
       {loading ? (
-        <ActivityIndicator color={t.primary} style={{ marginVertical: 24 }} />
+        <ActivityIndicator color={t.text} style={{ marginVertical: 24 }} />
       ) : (
         <ScrollView style={{ maxHeight: 420 }}>
           {friendly ? (
-            <View style={{ marginBottom: spacing.md }}>
+            <View style={s.highlights}>
               {highlights.map((i) => (
-                <Text key={i} style={s.highlight}>
-                  • {i}
-                </Text>
+                <View key={i} style={s.bulletRow}>
+                  <View style={s.dot} />
+                  <Text style={s.highlight}>{i}</Text>
+                </View>
               ))}
             </View>
           ) : null}
           {shown.map((sec) => (
-            <View key={sec.title} style={{ marginBottom: spacing.md }}>
+            <View key={sec.title} style={{ marginBottom: spacing.lg }}>
               <Text style={s.heading}>{sec.title}</Text>
               {sec.items.map((i) => (
-                <Text key={i} style={s.item}>
-                  • {i}
-                </Text>
+                <View key={i} style={s.bulletRow}>
+                  <View style={[s.dot, s.dotQuiet]} />
+                  <Text style={s.item}>{i}</Text>
+                </View>
               ))}
             </View>
           ))}
           {!friendly && !technical.length ? <Text style={s.item}>No release notes were published for this version.</Text> : null}
           {friendly && technical.length ? (
-            <Pressable accessibilityRole="button" onPress={() => setShowTechnical((v) => !v)} style={{ paddingVertical: spacing.sm }}>
+            <Pressable accessibilityRole="button" onPress={() => setShowTechnical((v) => !v)} style={s.linkRow}>
+              <Ionicons name={showTechnical ? 'chevron-up' : 'chevron-down'} size={14} color={t.text} />
               <Text style={s.link}>{showTechnical ? 'Hide technical changes' : 'Show technical changes'}</Text>
             </Pressable>
           ) : null}
         </ScrollView>
       )}
-      <Pressable accessibilityRole="button" onPress={onClose} style={s.button}>
-        <Text style={s.buttonText}>Got it</Text>
-      </Pressable>
+      <View style={{ marginTop: spacing.md }}>
+        <KitButton label="Got it" onPress={onClose} />
+      </View>
     </Sheet>
   );
 }
@@ -98,12 +102,17 @@ export function WhatsNewGate({ suppressed }: { suppressed: boolean }) {
   return <WhatsNewSheet version={shown.version} sections={shown.sections} onClose={() => setShown(null)} />;
 }
 
-const styles = (t: ReturnType<typeof useTheme>) =>
-  StyleSheet.create({
-    heading: { fontSize: fontSize.sm, fontWeight: '700', color: t.text, marginBottom: 4 },
-    highlight: { fontSize: fontSize.md, color: t.text, lineHeight: 22, marginBottom: 4 },
-    link: { color: t.primary, fontSize: fontSize.sm, fontWeight: '500' },
-    item: { fontSize: fontSize.sm, color: t.textSecondary, lineHeight: 20, marginBottom: 2 },
-    button: { marginTop: spacing.md, alignItems: 'center', paddingVertical: 14, borderRadius: 12, backgroundColor: t.primary },
-    buttonText: { color: t.textOnPrimary, fontSize: 16, fontWeight: '600' },
+const styles = (t: ReturnType<typeof useTheme>) => {
+  const tx = typeStyles(t);
+  return StyleSheet.create({
+    highlights: { backgroundColor: t.surfaceAlt, borderRadius: 10, padding: spacing.md, marginBottom: spacing.lg, gap: 6 },
+    heading: { ...tx.section, marginBottom: spacing.sm },
+    bulletRow: { flexDirection: 'row', alignItems: 'flex-start', gap: spacing.sm },
+    dot: { width: 6, height: 6, borderRadius: 3, backgroundColor: t.text, marginTop: 7 },
+    dotQuiet: { backgroundColor: t.textMuted },
+    highlight: { ...font(t, 'medium'), flex: 1, fontSize: fontSize.md, color: t.text, lineHeight: 22 },
+    linkRow: { flexDirection: 'row', alignItems: 'center', gap: 6, minHeight: 44 },
+    link: { ...font(t, 'semiBold'), color: t.text, fontSize: fontSize.sm },
+    item: { ...font(t, 'regular'), flex: 1, fontSize: fontSize.sm, color: t.textSecondary, lineHeight: 20, marginBottom: 4 },
   });
+};

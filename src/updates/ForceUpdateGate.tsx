@@ -1,8 +1,8 @@
 import { useMemo } from 'react';
-import { Modal, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Modal, StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { getConfig } from '../config';
-import { useTheme } from '../ui/primitives';
+import { KitButton, font, fontSize, radius, shadow, spacing, tint, useTheme } from '../ui/primitives';
 import { openUnknownAppSourcesSettings, type InstallErrorKind } from './install-apk';
 
 /**
@@ -15,11 +15,14 @@ export function ForceUpdateGate({
   busy,
   error,
   onInstall,
+  progress,
 }: {
   version: string;
   busy: boolean;
   error: { kind: InstallErrorKind | null; message: string } | null;
   onInstall: () => void;
+  /** 0 to 1 while the installer is being prepared, when known: shown as a bar under the message. */
+  progress?: number | null;
 }) {
   const t = useTheme();
   const s = useMemo(() => styles(t), [t]);
@@ -29,26 +32,27 @@ export function ForceUpdateGate({
       <View style={s.scrim}>
         <View style={s.card} accessibilityViewIsModal>
           <View style={s.icon}>
-            <Ionicons name="cloud-download-outline" size={30} color={t.primary} />
+            <Ionicons name="cloud-download-outline" size={30} color={t.text} />
           </View>
           <Text style={s.title}>Update required</Text>
           <Text style={s.body}>
             Version {version} of {appName} is ready. Install it to keep using the app; this can't be skipped.
           </Text>
-          {error ? <Text style={s.error}>{error.message}</Text> : null}
-          {error?.kind === 'blocked' ? (
-            <Pressable accessibilityRole="button" onPress={() => void openUnknownAppSourcesSettings()} style={s.secondary}>
-              <Text style={s.secondaryText}>Allow installs from this app</Text>
-            </Pressable>
+          {progress != null ? (
+            <View style={s.track} accessibilityRole="progressbar" accessibilityValue={{ min: 0, max: 100, now: Math.round(progress * 100) }}>
+              <View style={[s.fill, { width: `${Math.round(Math.max(0, Math.min(1, progress)) * 100)}%` }]} />
+            </View>
           ) : null}
-          <Pressable
-            accessibilityRole="button"
-            disabled={busy}
-            onPress={onInstall}
-            style={({ pressed }) => [s.primary, (pressed || busy) && { opacity: 0.7 }]}
-          >
-            <Text style={s.primaryText}>{busy ? 'Opening installer…' : 'Install now'}</Text>
-          </Pressable>
+          {error ? (
+            <View style={s.errorBox}>
+              <Ionicons name="alert-circle-outline" size={16} color={t.danger} />
+              <Text style={s.error}>{error.message}</Text>
+            </View>
+          ) : null}
+          {error?.kind === 'blocked' ? (
+            <KitButton label="Allow installs from this app" variant="outline" onPress={() => void openUnknownAppSourcesSettings()} style={s.full} />
+          ) : null}
+          <KitButton label={busy ? 'Opening installer…' : 'Install now'} onPress={onInstall} disabled={busy} iconLeft="download-outline" style={s.full} />
         </View>
       </View>
     </Modal>
@@ -57,14 +61,14 @@ export function ForceUpdateGate({
 
 const styles = (t: ReturnType<typeof useTheme>) =>
   StyleSheet.create({
-    scrim: { flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', alignItems: 'center', justifyContent: 'center', padding: 24 },
-    card: { width: '100%', maxWidth: 420, backgroundColor: t.surface, borderRadius: 16, padding: 24, alignItems: 'center', gap: 12 },
-    icon: { width: 56, height: 56, borderRadius: 28, alignItems: 'center', justifyContent: 'center', backgroundColor: t.background },
-    title: { fontSize: 20, fontWeight: '600', color: t.text },
-    body: { fontSize: 14, color: t.textMuted, textAlign: 'center', lineHeight: 20 },
-    error: { fontSize: 13, color: t.danger, textAlign: 'center' },
-    primary: { alignSelf: 'stretch', alignItems: 'center', paddingVertical: 14, borderRadius: 12, backgroundColor: t.primary, marginTop: 4 },
-    primaryText: { color: t.textOnPrimary, fontSize: 16, fontWeight: '600' },
-    secondary: { paddingVertical: 8 },
-    secondaryText: { color: t.primary, fontSize: 14, fontWeight: '500' },
+    scrim: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', alignItems: 'center', justifyContent: 'center', padding: spacing.xl },
+    card: { width: '100%', maxWidth: 360, backgroundColor: t.surface, borderRadius: radius.lg, padding: spacing.xl, alignItems: 'center', gap: spacing.sm, ...shadow.md },
+    icon: { width: 64, height: 64, borderRadius: 32, alignItems: 'center', justifyContent: 'center', backgroundColor: t.surfaceAlt, marginBottom: spacing.sm },
+    title: { ...font(t, 'bold'), fontSize: fontSize.xl, color: t.text, textAlign: 'center' },
+    body: { ...font(t, 'regular'), fontSize: fontSize.sm, color: t.textSecondary, textAlign: 'center', lineHeight: 20, marginBottom: spacing.sm },
+    track: { alignSelf: 'stretch', height: 6, borderRadius: 3, backgroundColor: t.surfaceAlt, overflow: 'hidden' },
+    fill: { height: 6, borderRadius: 3, backgroundColor: t.primary },
+    errorBox: { alignSelf: 'stretch', flexDirection: 'row', alignItems: 'flex-start', gap: spacing.sm, padding: spacing.md, borderRadius: radius.md, backgroundColor: tint(t.danger, 0.08) },
+    error: { ...font(t, 'regular'), flex: 1, fontSize: fontSize.xs, color: t.danger, lineHeight: 17 },
+    full: { alignSelf: 'stretch' },
   });

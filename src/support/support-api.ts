@@ -58,6 +58,10 @@ export function mergeMessages(current: ChatMessage[], incoming: ChatMessage[]): 
 
 /* ---- conversations as Issues ---- */
 
+/** One status step of a conversation: how it was filed (`created`) or a change of status (`status`). */
+export type ThreadEvent = { id: string; kind: 'created' | 'status'; status: string; previous?: string | null; label?: string; sent_at: string };
+export type ThreadInfo = { id: string; subject: string; status: string; created?: string; has_screenshot?: boolean };
+
 export type ThreadSummary = { id: string; subject: string; status: string; last_activity: string; last_staff_at: string | null; preview: string };
 
 /** The person's conversations. `mode: 'chat'` means the site has no Issue doctype and the single-thread chat is used. */
@@ -68,11 +72,12 @@ export async function fetchThreads(): Promise<{ mode: 'issue' | 'chat'; threads:
   return { mode: m.mode === 'chat' ? 'chat' : 'issue', threads: Array.isArray(m.threads) ? m.threads : [] };
 }
 
-export async function fetchThread(id: string): Promise<{ thread: { id: string; subject: string; status: string }; messages: ChatMessage[] }> {
+/** One conversation: the words (`messages`) and its status history (`events`, empty on sites running an older server). */
+export async function fetchThread(id: string): Promise<{ thread: ThreadInfo; messages: ChatMessage[]; events: ThreadEvent[] }> {
   const { api, endpoints } = getConfig();
-  const res = await api<Body<{ thread: { id: string; subject: string; status: string }; messages?: ChatMessage[] }>>({ method: 'GET', url: endpoints.supportThread, params: { issue: id } });
+  const res = await api<Body<{ thread: ThreadInfo; messages?: ChatMessage[]; events?: ThreadEvent[] }>>({ method: 'GET', url: endpoints.supportThread, params: { issue: id } });
   const m = unwrap(res);
-  return { thread: m.thread, messages: Array.isArray(m.messages) ? m.messages : [] };
+  return { thread: m.thread, messages: Array.isArray(m.messages) ? m.messages : [], events: Array.isArray(m.events) ? m.events : [] };
 }
 
 export async function replyThread(id: string, text: string): Promise<ChatMessage> {
@@ -116,4 +121,13 @@ export async function fetchUnreadCount(): Promise<number> {
   const { mode, threads } = await fetchThreads();
   if (mode === 'chat') return fetchUnread();
   return unreadThreads(threads, await loadSeen()).length;
+}
+
+/** What the "My reports" row in Settings shows: which chat the site uses and the counts. */
+export async function fetchReportsOverview(): Promise<{ mode: 'issue' | 'chat'; open: number; total: number; unread: number }> {
+  const { mode, threads } = await fetchThreads();
+  if (mode === 'chat') return { mode, open: 0, total: 0, unread: await fetchUnread() };
+  const unread = unreadThreads(threads, await loadSeen());
+  const done = new Set(['Resolved', 'Closed']);
+  return { mode, open: threads.filter((t) => !done.has(t.status)).length, total: threads.length, unread: unread.length };
 }

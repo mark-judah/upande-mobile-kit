@@ -1,7 +1,8 @@
 import { useState } from 'react';
-import { ActivityIndicator, Pressable, Text } from 'react-native';
+import { Text } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { getConfig } from '../config';
+import { KitButton, font, fontSize } from '../ui/primitives';
 import { useBiometricVault, type VaultCredentials } from './index';
 
 /**
@@ -38,16 +39,8 @@ export function BiometricSignIn({
 
   return (
     <>
-      <Pressable
-        accessibilityRole="button"
-        disabled={busy}
-        onPress={press}
-        style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, paddingVertical: 14, borderRadius: 12, backgroundColor: t.primary, opacity: pressed || busy ? 0.7 : 1 })}
-      >
-        {busy ? <ActivityIndicator color={t.textOnPrimary} /> : <Ionicons name="finger-print" size={22} color={t.textOnPrimary} />}
-        <Text style={{ color: t.textOnPrimary, fontSize: 16, fontWeight: '600' }}>{label}</Text>
-      </Pressable>
-      {error ? <Text style={{ color: t.danger, fontSize: 13, marginTop: 6, textAlign: 'center' }}>{error}</Text> : null}
+      <KitButton label={label} onPress={press} loading={busy} iconLeft="finger-print" />
+      {error ? <Text style={[font(t, 'regular'), { color: t.danger, fontSize: fontSize.sm, marginTop: 6, textAlign: 'center' }]}>{error}</Text> : null}
     </>
   );
 }
