@@ -165,6 +165,18 @@ Do this once per app repository.
 
 ## Releasing
 
+### Cheat sheet
+
+Every push to your release branch is a release. By default it is an **OTA** update: no APK, phones get it when the app opens. To ship an **APK**, say so in a commit message or on the Run workflow screen:
+
+| I want | Do this |
+|---|---|
+| a normal update (JavaScript only) | commit as usual: `git commit -m "fix: correct the gate count"` |
+| the same update **plus an APK** | add `[apk]` to a commit message: `git commit -m "fix: correct the gate count [apk]"` |
+| an APK after changing native code (new packages, plugins, SDK) | add `[native]`: `git commit -m "feat: scan IDs [native]"` |
+| an APK right now, without a new commit | **Actions > Release > Run workflow**, tick **build_apk** ([steps](#running-the-workflow-by-hand)) |
+| to see what a push would do | `npx upande-mobile-kit version` |
+
 ### What `init` leaves to commit
 
 | File | Purpose |
@@ -235,6 +247,7 @@ git commit -m "feat!: new login [major]"                       # 2.0.0 and an AP
 
 Rules:
 
+- The marker can be in any commit that lands on the release branch since the last release, in the subject or the body. Merge commits themselves are ignored, so: with **Squash and merge** put the marker in the squash commit's title or description (GitHub shows it in the box before you confirm); with **Create a merge commit** or **Rebase and merge** a marker in any of the branch's own commits counts.
 - A marker must be a whole bracketed token. `[apkish]` or the word apk in a sentence does nothing.
 - `--bump minor`, `--bump major` and `--set` (workflow inputs) always win over markers. `--bump auto`, `patch`, or nothing leave the decision to the markers.
 - An Expo SDK upgrade still forces a minor bump and an APK, whatever the markers say.
@@ -276,7 +289,14 @@ It reads your local commits. Commit first (a local commit is enough); do not run
 
 ### Running the workflow by hand
 
-**Actions > Release > Run workflow.** Pick the branch, then:
+Use this to get an APK without making a commit, or to release a specific version.
+
+1. Push your changes first. The workflow builds what is on GitHub, not your local files.
+2. Open your repository on GitHub and go to **Actions**.
+3. In the left list choose **Release**.
+4. Click **Run workflow** (the button above the list of runs, on the right).
+5. Pick the **branch** (your release branch).
+6. Fill in the inputs, then click the green **Run workflow** button:
 
 | Input | Values |
 |---|---|
@@ -284,7 +304,21 @@ It reads your local commits. Commit first (a local commit is enough); do not run
 | `set_version` | an exact version such as `2.0.0`; when set, `bump` is ignored |
 | `build_apk` | tick it to also build and attach an APK (same runtime, OTA keeps working) |
 
-It builds what is on GitHub, not your local files: push your changes first.
+The run appears at the top of the list within a few seconds. An APK build takes about 14 minutes. When it finishes, the APK is under **Releases** in your repository, attached to the new version as `<apk-name>_v<version>.apk` and `<apk-name>.apk` (the second name always points to the newest build).
+
+**No `build_apk` box?** Your `release.yml` is from an older kit: run `npx upande-mobile-kit init --update-workflow` and push it ([details](#keeping-the-workflow-up-to-date)).
+
+**From a script or terminal** (needs a token that may run workflows; this example builds an APK on branch `main`):
+
+```bash
+curl -X POST \
+  -H "Authorization: Bearer $GITHUB_TOKEN" \
+  -H "Accept: application/vnd.github+json" \
+  https://api.github.com/repos/<owner>/<repo>/actions/workflows/release.yml/dispatches \
+  -d '{"ref":"main","inputs":{"build_apk":"true"}}'
+```
+
+With the GitHub CLI: `gh workflow run release.yml --ref main -f build_apk=true`.
 
 ### Keeping the workflow up to date
 
