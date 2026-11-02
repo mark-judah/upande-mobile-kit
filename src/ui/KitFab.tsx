@@ -4,6 +4,7 @@ import { usePathname } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { DEFAULT_DEVICES_ROUTE, DEFAULT_SETTINGS_ROUTE, getConfig, KitKeys } from '../config';
 import { openKitSettings } from '../open-settings';
+import { useInsets } from './insets';
 import {
   clampBottom, decodePlacement, encodePlacement, FAB_SIZE, fabVisible, isTap, leftFor, placementAfterDrag, resolveFab,
   topFor, type FabPlacement,
@@ -14,29 +15,6 @@ import {
  * whatever the host's navigation looks like. Small and translucent, it hides on the kit's own pages and while the
  * keyboard is open, can be dragged to either screen edge, and remembers where it was left.
  */
-
-const ZERO = { top: 0, bottom: 0, left: 0, right: 0 };
-
-/** Safe-area insets when `react-native-safe-area-context` is there (expo-router brings it), else none. */
-function loadInsetsHook(): (() => typeof ZERO) | null {
-  try {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports -- optional: expo-router depends on it
-    const m = require('react-native-safe-area-context');
-    return typeof m?.useSafeAreaInsets === 'function' ? m.useSafeAreaInsets : null;
-  } catch {
-    return null;
-  }
-}
-let insetsHook: (() => typeof ZERO) | null | undefined;
-function useInsets(): typeof ZERO {
-  if (insetsHook === undefined) insetsHook = loadInsetsHook();
-  if (!insetsHook) return ZERO;
-  try {
-    return insetsHook() ?? ZERO;
-  } catch {
-    return ZERO; // no provider above us
-  }
-}
 
 export function KitFab() {
   const cfg = getConfig();

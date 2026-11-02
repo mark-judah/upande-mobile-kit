@@ -10,6 +10,7 @@ import {
   View,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { useInsets } from './insets';
 import { getConfig, type KitDialogButton, type KitDialogIcon, type KitUi, type KitTheme } from '../config';
 
 /**
@@ -41,11 +42,18 @@ function DefaultScreen({
   onRefresh?: () => void;
 }) {
   const t = useTheme();
+  // Edge-to-edge hosts draw under the status and gesture bars; keep the title and last rows clear of them.
+  const insets = useInsets();
   const [refreshing, setRefreshing] = useState(false);
   return (
     <ScrollView
       style={{ flex: 1, backgroundColor: t.background }}
-      contentContainerStyle={{ padding: spacing.lg, gap: spacing.md }}
+      contentContainerStyle={{
+        padding: spacing.lg,
+        paddingTop: spacing.lg + insets.top,
+        paddingBottom: spacing.lg + insets.bottom,
+        gap: spacing.md,
+      }}
       refreshControl={
         onRefresh ? (
           <RefreshControl
