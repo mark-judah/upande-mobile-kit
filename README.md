@@ -3,8 +3,8 @@
 A Settings page and the update plumbing behind it, for Expo apps.
 
 - **Updates that reach phones by themselves.** JavaScript fixes ship over the air (OTA). New native builds ship as an APK that downloads in the background and asks the user to tap Install.
-- **A Settings page** with versions, a "Check for updates" button, a biometric switch and a floating button that opens it from any screen.
-- **A device register.** System Managers see which phones run which build, and which are behind.
+- **A Settings page** with versions, a "Check for updates" button, a fingerprint unlock switch and a floating button that opens it from any screen.
+- **A Devices page** in the app. System Managers see which phones run which build, who used them, and which are behind.
 - **Crash and API monitoring** on a web portal in your own Frappe site (`/mobile-monitor`): errors, failed requests with headers, payload and response, device details and the signed-in user.
 - **One release workflow.** Merge to your release branch and GitHub Actions publishes the OTA bundle or builds the APK. No Expo (EAS) account.
 
@@ -251,14 +251,76 @@ A `!` after the type (`feat!: ...`) or a `BREAKING CHANGE:` line in the body put
 - There is no rollback step. To undo a bad OTA, revert the change on the release branch and merge: the next patch release publishes the old code as a new version.
 - The workflow regenerates `android/` with `expo prebuild --clean` on every APK build. Hand edits in a committed `android/` folder are not used; put native changes in config plugins.
 
-## What your users see
+## The Settings page
 
-- **A floating Settings button** on every screen once `<MobileKitProvider>` is mounted. Drag it to either screen edge; it remembers where you left it. It hides on the kit's own pages and while the keyboard is open. Set `fab: false` to remove it and open the page yourself with `openKitSettings()`, `<KitSettingsButton />` or `router.push('/mobile-kit/settings')`.
-- **The Settings page** at `/mobile-kit/settings`: account, a biometric switch, the "Send crash reports" switch, an App & Server card (app, site, the site's app versions, installed version, latest version, which bundle is running), update controls, a "Not available in this build" card when optional native modules are missing, a Devices link for System Managers, and Sign out / Forget this device when your app provides them.
-- **Updates on open.** On launch the app checks for an OTA bundle and, if one downloads in the first 20 seconds, restarts into it. A later download waits for the next opening, so it never restarts under someone mid-task.
-- **APK updates.** Once a day the app checks your GitHub Releases. By default it downloads a newer APK in the background on Wi-Fi, then offers Install now. The user can choose Wi-Fi only, any network or off in Settings. A finished download is kept, so a dismissed installer can be reopened without downloading again.
+Every user of your app gets this page at `/mobile-kit/settings`. A floating button opens it from any screen once `<MobileKitProvider>` is mounted. Drag the button to either screen edge; it remembers where you left it, and it hides on the kit's own pages and while the keyboard is open. Set `fab: false` to remove it and open the page yourself with `openKitSettings()`, `<KitSettingsButton />` or `router.push('/mobile-kit/settings')`.
+
+From top to bottom, the page shows:
+
+| Card | What it has |
+|---|---|
+| Profile | The user's initial, name, email and site, taken from your `useAuth` |
+| Dev notice | Development builds only: which of `useAuth`, `api` and `storage` are still on the kit's stand-ins |
+| Security | The **Biometric unlock** switch (see [Fingerprint unlock](#fingerprint-unlock)). Hidden when `biometric: 'host'` |
+| Diagnostics | The **Send crash reports** switch, and a **Send test error** button in development. Hidden with `monitor.showToggle: false` |
+| App & Server | The app name, the site, the versions of the apps on the site (Frappe and ERPNext by default), **Installed** version, **Latest** version, which bundle is running (embedded build, or the OTA bundle id, date and channel), the **Check for updates** button and the **Download updates** choice (see [Updates on the phone](#updates-on-the-phone)) |
+| Not available in this build | Only when an optional native module is missing, for example "Battery info unavailable: rebuild required" |
+| Your own rows | Anything you pass as `extraSections` or `profileExtra` |
+| Devices | A link to the Devices page. System Managers only |
+| Session | **Sign out** and **Forget this device**, shown when your `useAuth` provides `logout` and `forgetDevice` |
+
+## The Devices page
+
+The Devices page, at `/mobile-kit/devices`, is the install register for this app, inside the app. It answers one question for an administrator: which phones run which build, and who is behind.
+
+- **Who can open it:** System Managers (your `useAuth` reports `isSystemManager`). Anyone else is sent back to Settings. System Managers reach it from the Devices row on the Settings page.
+- **What it lists:** every device that has run this app and reported in, newest activity first, 30 at a time with **Show more**. It reads `upande_mobile.api.installs` on your Frappe site and shows only this app's devices.
+- **Each device row shows:** a phone icon (or a desktop icon for an emulator), the device name or brand and model, "(this device)" for the phone you are holding, platform and OS version, the app name and version, how long ago it was last seen, the last user and how many users have used it, and a status badge. When an update is needed, a line such as "Update to 1.3.0 (reopen the app)".
+- **Tap a row to expand it:** every account that used the device, each with its own app version and last seen; the model; the OS; the previous version and when it was upgraded; the number of sign-ins and launches; first seen; the IP address the server saw; and the first 8 characters of the install id.
+- **Filters:** All, 7 days or 30 days of activity; a **Dormant** chip to include devices that have not been seen for a while (hidden by default); and a search box over user, device, model, OS, version and IP.
+- **The summary under the filters:** a count of devices per status.
+
+| Status | Meaning |
+|---|---|
+| Current | Running the latest published version |
+| Behind | A newer JavaScript update exists; reopening the app applies it |
+| Needs APK | The device's runtime is older than the latest one, so it needs a new APK |
+| Ahead | Newer than the latest published version |
+| Dormant | Not seen for the app's dormant days (7 by default) |
+| Unknown | The app is not registered and enabled on the site, or no latest version is known yet |
+
+The status and the "Update to" text come from the server. Nothing is worked out on the phone. Devices only appear after the app has signed in to a Frappe user at least once, because the register only records signed-in accounts.
+
+The page shows versions and who used each phone. Battery, storage, network and the per-device crash history are in the [web portal](#the-web-portal), under Devices.
+
+## Fingerprint unlock
+
+The **Biometric unlock** switch lives in the Security card of the Settings page. It is the user's choice to use a fingerprint (or face) instead of a password to sign back in.
+
+- **Turning it on** asks the phone to confirm with a fingerprint or face ("Confirm biometric unlock"; the phone's PIN is not accepted here). If the build has no `expo-local-authentication`, it says to install the latest build. If no fingerprint or face is enrolled in the phone's settings, it says to enrol one first. On success the choice is saved.
+- **Turning it off** needs no prompt.
+- **Where the choice is saved:** through your `useAuth` (`biometricEnabled` and `setBiometricEnabled`), so it lands in your own auth store. With no `useAuth`, the kit keeps it in its own storage.
+- **What the kit does not do:** it does not add a lock screen, and it does not lock your app when it opens. It asks for the fingerprint when the user turns the switch on and stores the choice. Your sign-in flow decides what to do with it: read `biometricEnabled` from your auth state and prompt with the kit's helper.
+
+  ```ts
+  import { Biometric } from '@upande/mobile-kit';
+
+  if (biometricEnabled && (await Biometric.isAvailable())) {
+    const { success } = await Biometric.authenticate({ promptMessage: 'Unlock' });
+    // success: let the user in; otherwise fall back to the password
+  }
+  ```
+
+  The helper is safe on a build without the native module: it reports "not available" instead of crashing.
+- **If your app already has its own lock**, set `biometric: 'host'`. The kit then hides its switch so there is one lock and one switch. `init` detects an existing use of `expo-local-authentication` and sets this for you.
+- **Sign out and Forget this device** are in the Session card. Sign out asks "You can sign back in with biometrics or your password." Forget this device asks "Clears your session and disables biometric unlock." Both call the functions your `useAuth` provides and then go to `loginRoute` (default `/login`).
+
+## Updates on the phone
+
+- **On open.** The app checks for an OTA bundle. If one downloads in the first 20 seconds, it restarts into it. A later download waits for the next opening, so the app never restarts under someone mid-task.
+- **Check for updates.** The one button in App & Server. It checks GitHub Releases for a new APK first, because a new APK carries a new runtime and supersedes any OTA bundle. If the APK is current it asks for an OTA bundle. When an APK is available the same button reads **Download v1.3.0 (size)**, then **Install v1.3.0**.
+- **Download updates.** A choice under that button: **Wi-Fi only** (the default), **Any network** or **Off**. The user's choice wins over `apk.autoDownload`. Once a day the app checks GitHub Releases; on Wi-Fi it downloads a newer APK in the background and offers **Install now**. **Later** is remembered for that version. A finished download is kept, so a dismissed installer can be reopened without downloading again.
 - **Android cannot install an APK silently.** The user always confirms in Android's installer, and the first time Android also asks to allow installs from this app.
-- **The Devices page** at `/mobile-kit/devices`, for System Managers: every device, its app and runtime version, last seen, the accounts that used it and a status (`current`, `behind_ota`, `needs_apk`, `ahead`, `dormant`, `unknown`), with search.
 
 ## Local and production sites
 
@@ -332,7 +394,7 @@ configureMobileKit({
 | `authHeaders` | none | Extra headers for the built-in client |
 | `storage` | AsyncStorage, else memory | `{ get, set, remove }` |
 | `fab` | `true` | `true`, `false`, `'dev'` (development builds only) or `{ initialSide: 'left' \| 'right', bottom: 96 }` |
-| `biometric` | `'kit'` | `'host'` if your app already has its own lock: the kit then hides its switch and never prompts |
+| `biometric` | `'kit'` | `'kit'`: Settings shows the Biometric unlock switch (it confirms with a fingerprint and stores the choice; your sign-in flow acts on it). `'host'`: your app already has its own lock, so the kit hides its switch and never prompts. See [Fingerprint unlock](#fingerprint-unlock) |
 | `apk.autoDownload` | `'wifi'` | `'wifi'`, `'always'` or `'never'`. The user's Settings choice wins |
 | `monitor` | see below | Crash and API monitoring options |
 | `theme`, `ui` | built-in look | Colours and fonts, or swap `Screen`, `Card`, `Button`, `useToast`, `showDialog`, `useOnline` |
