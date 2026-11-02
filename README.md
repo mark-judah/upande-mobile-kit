@@ -43,7 +43,7 @@ Every feature name links to its section. "Needs" lists native modules beyond the
 
 | Feature | What it does | Needs |
 |---|---|---|
-| [Report a problem](#report-a-problem) | A screenshot, the device, the last requests and the last crash, filed on your site | `react-native-view-shot` for the screenshot |
+| [Report a problem](#report-a-problem) | A screenshot, the device, the last requests and the last crash, filed as an Issue on your site | `react-native-view-shot` for the screenshot |
 | [Chat with support](#chat-with-support) | A conversation with your team inside the app | none |
 | [What's new](#whats-new) | The release notes, shown once after an update | none |
 | [Last crash capture](#last-crash-capture) | The crash that made someone write in is attached to their report | none |
@@ -612,7 +612,9 @@ The person writes a subject and what happened. The kit adds:
 - **a screenshot of the screen they were on**, taken when they tapped the floating button, before Settings covered it (needs `react-native-view-shot`; without it the report goes without a screenshot);
 - the **device and connection**, the **last 15 requests** (addresses and results only, secrets removed) and the **[last crash](#last-crash-capture)**.
 
-A "What will be sent" list shows all of it before they send. The report lands in the [web portal](#the-web-portal) under **Support** as a *Mobile Report*, with a status you set (Open, In Progress, Resolved).
+A "What will be sent" list shows all of it before they send.
+
+**Where it lands.** On a site with the **Issue** doctype (ERPNext or Helpdesk) the report is filed as an ordinary **Issue**: subject `[Your App] what they wrote`, raised by the person's email, the diagnostics in the description under a divider line, and the **screenshot attached to the Issue**. It then follows your normal support workflow (numbering, SLA, assignment, replies). The [web portal](#the-web-portal)'s **Support** page lists these Issues and links to each in Desk. A site without Issue gets a *Mobile Report* record instead. See the [backend README](https://github.com/mark-judah/upande-mobile#problem-reports).
 
 ### Chat with support
 
@@ -811,6 +813,7 @@ npx upande-mobile-kit init --yes --site https://your.site --dev-site http://loca
 | The Update required dialog keeps coming back | The installer was cancelled, or Android blocks installs from this app | Tap **Install now** and allow installs from this app when Android asks. Set `apk: { force: false }` for a dialog with **Later** |
 | No ring on the floating button while updating | The button is hidden (kit pages, keyboard, before sign-in) or `fab` is off | The ring is part of the floating button; see [the floating button](#the-floating-button) |
 | **Report a problem** says it could not send | The backend is older than 0.2.0 or has not been migrated, or the phone is offline | Update `upande_mobile`, run `bench --site your.site migrate`, retry |
+| A report is not in the Issue list | The site has no Issue doctype, so it went to Mobile Report | Look under the portal's Support page, or install ERPNext/Helpdesk |
 | A report has no screenshot | `react-native-view-shot` is not in the build, or Settings was opened without the floating button | `npx expo install react-native-view-shot`, then a new native build |
 | **Chat with support** never shows replies | Nobody has replied yet, or the backend lacks the support endpoints | Reply from the portal's Support page; update and migrate the backend |
 | "What's new" never appears | A first install, no notes on that GitHub release, or `whatsNew: false` | Add notes through commit messages; the row in Settings reopens it |
