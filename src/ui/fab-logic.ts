@@ -13,11 +13,11 @@ export const FAB_TAP_SLOP = 6;
 
 export type FabSide = 'left' | 'right';
 export type FabPlacement = { side: FabSide; bottom: number };
-export type FabSettings = { enabled: boolean; initialSide: FabSide; bottom: number };
+export type FabSettings = { enabled: boolean; initialSide: FabSide; bottom: number; whenSignedOut: boolean };
 
 /** The config's `fab` value as settings. `isDev` is `__DEV__`. */
 export function resolveFab(fab: boolean | 'dev' | KitFabOptions | undefined, isDev: boolean): FabSettings {
-  const base = { initialSide: 'right' as FabSide, bottom: FAB_DEFAULT_BOTTOM };
+  const base = { initialSide: 'right' as FabSide, bottom: FAB_DEFAULT_BOTTOM, whenSignedOut: false };
   if (fab === false) return { enabled: false, ...base };
   if (fab === 'dev') return { enabled: isDev, ...base };
   if (fab && typeof fab === 'object') {
@@ -25,6 +25,7 @@ export function resolveFab(fab: boolean | 'dev' | KitFabOptions | undefined, isD
       enabled: true,
       initialSide: fab.initialSide === 'left' ? 'left' : 'right',
       bottom: typeof fab.bottom === 'number' && Number.isFinite(fab.bottom) ? Math.max(0, fab.bottom) : base.bottom,
+      whenSignedOut: fab.whenSignedOut === true,
     };
   }
   return { enabled: true, ...base };
@@ -46,7 +47,10 @@ export function fabVisible(a: {
   pathname: string | null | undefined;
   routes: { settings: string; devices: string };
   keyboardOpen: boolean;
+  /** True when the app's own `useAuth` says nobody is signed in (never true on the kit's stand-in auth). */
+  signedOut?: boolean;
 }): boolean {
+  if (a.signedOut && !a.settings.whenSignedOut) return false;
   return a.settings.enabled && !a.keyboardOpen && !isKitPath(a.pathname, a.routes);
 }
 

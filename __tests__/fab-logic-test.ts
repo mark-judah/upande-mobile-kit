@@ -8,7 +8,7 @@ const insets = { top: 24, bottom: 16 };
 
 describe('resolveFab', () => {
   it('is on by default, at the right edge', () => {
-    expect(resolveFab(undefined, false)).toEqual({ enabled: true, initialSide: 'right', bottom: FAB_DEFAULT_BOTTOM });
+    expect(resolveFab(undefined, false)).toEqual({ enabled: true, initialSide: 'right', bottom: FAB_DEFAULT_BOTTOM, whenSignedOut: false });
     expect(resolveFab(true, false).enabled).toBe(true);
   });
   it('false hides it; "dev" shows it only in development builds', () => {
@@ -17,7 +17,7 @@ describe('resolveFab', () => {
     expect(resolveFab('dev', false).enabled).toBe(false);
   });
   it('an object keeps it on and sets the start; bad numbers fall back', () => {
-    expect(resolveFab({ initialSide: 'left', bottom: 140 }, false)).toEqual({ enabled: true, initialSide: 'left', bottom: 140 });
+    expect(resolveFab({ initialSide: 'left', bottom: 140 }, false)).toEqual({ enabled: true, initialSide: 'left', bottom: 140, whenSignedOut: false });
     expect(resolveFab({ bottom: Number.NaN }, false).bottom).toBe(FAB_DEFAULT_BOTTOM);
     expect(resolveFab({ bottom: -5 }, false).bottom).toBe(0);
   });
@@ -42,6 +42,14 @@ describe('isKitPath / fabVisible', () => {
     expect(fabVisible({ settings: on, pathname: '/mobile-kit/settings', routes, keyboardOpen: false })).toBe(false);
     expect(fabVisible({ settings: on, pathname: '/orders', routes, keyboardOpen: true })).toBe(false);
     expect(fabVisible({ settings: resolveFab(false, false), pathname: '/orders', routes, keyboardOpen: false })).toBe(false);
+  });
+  it('hides before sign-in (the host gate would bounce the page), unless whenSignedOut is set', () => {
+    expect(fabVisible({ settings: on, pathname: '/login', routes, keyboardOpen: false, signedOut: true })).toBe(false);
+    expect(fabVisible({ settings: on, pathname: '/orders', routes, keyboardOpen: false, signedOut: false })).toBe(true);
+    expect(fabVisible({ settings: on, pathname: '/login', routes, keyboardOpen: false })).toBe(true); // stand-in auth: unknown, so shown
+    const always = resolveFab({ whenSignedOut: true }, false);
+    expect(fabVisible({ settings: always, pathname: '/login', routes, keyboardOpen: false, signedOut: true })).toBe(true);
+    expect(resolveFab(true, false).whenSignedOut).toBe(false);
   });
 });
 

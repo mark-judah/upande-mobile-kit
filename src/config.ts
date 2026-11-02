@@ -161,6 +161,12 @@ export type KitFabOptions = {
   initialSide?: 'left' | 'right';
   /** Distance of the button from the bottom of the screen, in dp, before safe-area insets. Default 96. */
   bottom?: number;
+  /**
+   * Show the button while nobody is signed in. Default `false`: an app that wires its own `useAuth` usually keeps every
+   * screen except its login behind a sign-in gate, which sends the Settings page straight back to the login screen.
+   * Without a wired `useAuth` the kit cannot tell, and the button always shows.
+   */
+  whenSignedOut?: boolean;
 };
 
 export type MobileKitConfig = {
@@ -209,7 +215,8 @@ export type MobileKitConfig = {
   settingsRoute?: string;
   /**
    * The floating Settings button, the one entry point that works in any app whatever its navigation looks like.
-   * `true` (default): shown on every screen except the kit's own pages, draggable to either screen edge, hidden
+   * `true` (default): shown on every screen except the kit's own pages (and, when your `useAuth` is wired, the
+   * screens before sign-in; see `whenSignedOut`), draggable to either screen edge, hidden
    * while the keyboard is open. `'dev'`: only in development builds. `false`: never (open the page yourself with
    * `openKitSettings()`, `<KitSettingsButton />` or `router.push('/mobile-kit/settings')`). An object keeps it on
    * and sets where it starts.

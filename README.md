@@ -71,7 +71,7 @@ The wizard in step 2 can do this for a bench on your own machine. Production is 
 
 ```bash
 cd my-expo-app
-npm install github:mark-judah/upande-mobile-kit#v0.7.2
+npm install github:mark-judah/upande-mobile-kit#v0.7.3
 npx upande-mobile-kit init
 ```
 
@@ -393,7 +393,7 @@ configureMobileKit({
 | `api` | built-in `fetch` | Your Frappe client; must resolve to the response body |
 | `authHeaders` | none | Extra headers for the built-in client |
 | `storage` | AsyncStorage, else memory | `{ get, set, remove }` |
-| `fab` | `true` | `true`, `false`, `'dev'` (development builds only) or `{ initialSide: 'left' \| 'right', bottom: 96 }` |
+| `fab` | `true` | `true`, `false`, `'dev'` (development builds only) or `{ initialSide: 'left' \| 'right', bottom: 96, whenSignedOut: false }`. With your own `useAuth` wired the button hides until someone is signed in (your sign-in gate would send the page straight back to login); `whenSignedOut: true` shows it anyway |
 | `biometric` | `'kit'` | `'kit'`: Settings shows the Biometric unlock switch (it confirms with a fingerprint and stores the choice; your sign-in flow acts on it). `'host'`: your app already has its own lock, so the kit hides its switch and never prompts. See [Fingerprint unlock](#fingerprint-unlock) |
 | `apk.autoDownload` | `'wifi'` | `'wifi'`, `'always'` or `'never'`. The user's Settings choice wins |
 | `monitor` | see below | Crash and API monitoring options |

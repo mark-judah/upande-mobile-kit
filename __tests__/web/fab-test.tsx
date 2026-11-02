@@ -44,7 +44,29 @@ const render = () => renderToString(<MobileKitProvider><span>HOST-APP</span></Mo
 beforeEach(() => {
   mockPath.current = '/';
   mockPush.mockReset();
-  auth.user = null as never; // keep the device reporter out of it
+  auth.user = 'person@example.com' as never; // signed in (server rendering runs no effects, so nothing is reported)
+});
+
+describe('before sign-in', () => {
+  it('is hidden on the login screen when the app wires its own useAuth (its gate would bounce the page)', () => {
+    setup();
+    auth.user = null as never;
+    mockPath.current = '/login';
+    expect(render()).not.toContain(LABEL);
+  });
+
+  it('shows with whenSignedOut: true', () => {
+    setup({ fab: { whenSignedOut: true } });
+    auth.user = null as never;
+    mockPath.current = '/login';
+    expect(render()).toContain(LABEL);
+  });
+
+  it('always shows on the kit’s stand-in auth, which cannot tell', () => {
+    setup({ useAuth: undefined });
+    mockPath.current = '/login';
+    expect(render()).toContain(LABEL);
+  });
 });
 
 describe('visibility', () => {

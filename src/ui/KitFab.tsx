@@ -48,6 +48,9 @@ function FabOverlay() {
   const cfg = getConfig();
   const settings = resolveFab(cfg.fab, __DEV__);
   const pathname = usePathname();
+  // Only the host's own auth can say 'signed out'; on the kit's stand-in the button always shows.
+  const auth = cfg.useAuth();
+  const signedOut = !cfg.standIns.useAuth && !auth.user;
   const win = useWindowDimensions();
   const insets = useInsets();
   const [keyboardOpen, setKeyboardOpen] = useState(false);
@@ -137,7 +140,7 @@ function FabOverlay() {
     [pos, settle],
   );
 
-  if (!fabVisible({ settings, pathname, routes, keyboardOpen })) return null;
+  if (!fabVisible({ settings, pathname, routes, keyboardOpen, signedOut })) return null;
 
   return (
     <View pointerEvents="box-none" style={styles.layer}>
