@@ -17,7 +17,7 @@ import { dirname, join, resolve } from 'node:path';
 import { buildAdapters, detectHost, detectHostBiometric, inferMode } from './adapters.mjs';
 import { backupNote, createBackup } from './backup.mjs';
 import { NATIVE_MODULES } from './constants.mjs';
-import { detectPackageManager, FIX_COMMAND, missingModules, skipFor } from './native-modules.mjs';
+import { detectPackageManager, FIX_COMMAND, missingModules, skipFor, METRO_NOTE } from './native-modules.mjs';
 import { installNativeModules } from './native-install.mjs';
 import { openBlock, rebuildBlock, repoFromRemote, run as plainInit, wiringReport } from './init.mjs';
 import {
@@ -682,7 +682,7 @@ async function wizard({ argv, root, flag, yes, noInstall, io, doctorFn }) {
     updatesChanged: expoBefore.updates?.url !== expoAfter.updates?.url || expoBefore.runtimeVersion !== expoAfter.runtimeVersion,
   });
   if (block) log.push(block, '');
-  log.push(openBlock({ root, route: routes.settings, file: settingsFile }));
+  log.push(openBlock({ root, route: routes.settings, file: settingsFile }), '', METRO_NOTE);
   if (backup.files.length) log.push('', backupNote(backup));
   log.push('', 'Next:', `  • npx upande-mobile-kit verify   (checks routes, provider, wiring, native modules, sites and cleartext, with a fix per failure)`, '  • enable GitHub Pages for the gh-pages branch of ' + repo + ' once the first release creates it');
   if (!native.ok) log.push('', native.lines[native.lines.length - 1]); // last thing printed, so it cannot be missed

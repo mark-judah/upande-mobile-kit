@@ -21,3 +21,7 @@ export function describeMissing(status) {
     ? `${status.pkg} is not installed in this app (${lowerFirst(status.disables)})`
     : `${status.pkg} is in package.json but not in node_modules (${lowerFirst(status.disables)})`;
 }
+
+/** A running Metro does not notice files added to node_modules (a new package version): it must be restarted with a clean cache. */
+export const METRO_NOTE =
+  'If Metro (the dev server) is running, stop it and start it again with `npx expo start -c`: it does not notice files added to node_modules, and shows "Unable to resolve" for them until restarted.';

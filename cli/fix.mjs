@@ -16,7 +16,7 @@
 import { execFileSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
-import { detectPackageManager, expoInstallArgv, FIX_COMMAND, hostOwnsBiometric, moduleStatus, skipFor } from './native-modules.mjs';
+import { detectPackageManager, expoInstallArgv, FIX_COMMAND, hostOwnsBiometric, moduleStatus, skipFor, METRO_NOTE } from './native-modules.mjs';
 
 const INSTALL_TIMEOUT_MS = 10 * 60 * 1000;
 
@@ -89,5 +89,6 @@ export function run(argv, root = process.cwd(), opts = {}) {
   lines.push(`✓ all ${after.length} native modules are installed.`);
   const needBuild = [...added, ...revised.map((s) => s.pkg)];
   if (needBuild.length) lines.push('', rebuildNote(needBuild));
+  if (added.length || revised.length) lines.push('', METRO_NOTE);
   return { text: lines.join('\n') + '\n', ok: true, argv: cmd };
 }

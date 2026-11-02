@@ -28,7 +28,7 @@ import { fileURLToPath } from 'node:url';
 import { buildAdapters, detectHost, detectHostBiometric, STAND_IN_EFFECT } from './adapters.mjs';
 import { backupNote, createBackup } from './backup.mjs';
 import { BACKEND_APP, BACKEND_REPO_URL, isPlaceholder, KIT_REPO, NATIVE_MODULES, WORKFLOW_REF } from './constants.mjs';
-import { FIX_COMMAND } from './native-modules.mjs';
+import { FIX_COMMAND, METRO_NOTE } from './native-modules.mjs';
 import { installNativeModules } from './native-install.mjs';
 import {
   appDir,
@@ -396,6 +396,8 @@ export function run(argv, root = process.cwd(), { exec, lastSteps = true, wiring
     `  3. Enable GitHub Pages for the gh-pages branch of ${repo} (the first release creates it), then run \`npx upande-mobile-kit verify${site ? ` --site ${site}${devSite ? ` --dev-site ${devSite}` : ''}` : ''}\`.`,
     '',
     openBlock({ root, route: routes.settings, file: settingsFile }),
+    '',
+    METRO_NOTE,
   );
   // last thing printed, so it cannot be missed
   if (native && !native.ok) log.push('', native.lines[native.lines.length - 1]);

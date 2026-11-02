@@ -48,25 +48,13 @@ export function isRejectionChained(): boolean {
 }
 
 /**
- * React Native's own tracker options (the ones that turn an unhandled rejection into the yellow "Possible
- * Unhandled Promise Rejection" warning in development). Reading them lets the monitor sit in front of that
- * tracker and still call it, so LogBox keeps working. Null when this React Native has no such module.
+ * Deliberately none: React Native's own tracker options live in an internal module whose path differs between
+ * versions, and requiring a path that is absent makes Metro print a warning on every bundle. In development the
+ * monitor therefore leaves React Native's tracker alone and turns the warning line it prints into a report
+ * (`installConsoleErrors`); tests inject their own options.
  */
 function reactNativeRejectionOptions(): RejectionOptions | null {
-  /* eslint-disable @typescript-eslint/no-require-imports -- internal modules, loaded only here and only in try */
-  try {
-    const m = require('react-native/Libraries/promiseRejectionTrackingOptions');
-    return (m?.default ?? m) as RejectionOptions;
-  } catch {
-    // another path, or none
-  }
-  try {
-    const m = require('react-native/Libraries/Core/promiseRejectionTrackingOptions');
-    return (m?.default ?? m) as RejectionOptions;
-  } catch {
-    return null;
-  }
-  /* eslint-enable @typescript-eslint/no-require-imports */
+  return null;
 }
 
 /**

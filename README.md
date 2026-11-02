@@ -1,6 +1,6 @@
 # @upande/mobile-kit
 
-> Distributed from GitHub, not npm: no npm account needed. Install with `npm install github:mark-judah/upande-mobile-kit#v0.7.0` (pin a release tag).
+> Distributed from GitHub, not npm: no npm account needed. Install with `npm install github:mark-judah/upande-mobile-kit#v0.7.1` (pin a release tag).
 
 A drop-in **Settings page for Expo apps**, with the update plumbing behind it:
 
@@ -17,7 +17,7 @@ The server side is a small Frappe app (`upande_mobile`): it keeps the device reg
 
 ```bash
 # 1. add it to your Expo app (from GitHub; pin a release tag)
-npm install github:mark-judah/upande-mobile-kit#v0.7.0
+npm install github:mark-judah/upande-mobile-kit#v0.7.1
 
 # 2. run the wizard: it asks a few questions, then does the rest
 npx upande-mobile-kit init
@@ -169,6 +169,10 @@ An OTA update only replaces JavaScript. Native modules (`expo-device`, `expo-bat
 
 A dev site addressed by an mDNS name (one ending in `.local`) resolves on your computer but **not from a phone or the Android emulator** (phones do not resolve mDNS names). Use your computer's LAN IP instead, `http://<your-lan-ip>:8000`, and make bench serve it: set bench's default site (`bench use <site>`, which sets `default_site`) so a request to the bare IP reaches your site, and start the bench listening on all interfaces. `verify` warns about any `.local` host. The IP is plain `http://`, so the cleartext settings above apply.
 
+### After updating the kit: restart Metro
+
+A running dev server does not notice files that appear in `node_modules` when you update the kit (it shows "Unable to resolve ..." for a file that is on disk). Stop it and start it again with a clean cache: `npx expo start -c`. `init` and `fix` remind you.
+
 ## How updates reach a phone
 
 1. A merge to your release branch runs the workflow. It bumps the version one odometer step.
@@ -302,7 +306,7 @@ git tag v0.1.0 && git push origin v0.1.0
 git tag -f v0 && git push -f origin v0      # callers' `uses: <owner>/upande-mobile-kit/…@v0` resolves to this
 ```
 
-Users then run `npm install github:mark-judah/upande-mobile-kit#v0.7.0`. To update, they change the tag. Bump `version` in `package.json` before each tag so it matches.
+Users then run `npm install github:mark-judah/upande-mobile-kit#v0.7.1`. To update, they change the tag. Bump `version` in `package.json` before each tag so it matches.
 
 Notes: a GitHub install has no registry listing, download counts or integrity record beyond the git commit, so pin a tag (or a commit hash), never a branch. `npx upande-mobile-kit …` works after the install because the command is linked into `node_modules/.bin`.
 
