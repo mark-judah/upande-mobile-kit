@@ -65,7 +65,9 @@ export {
 } from './monitor';
 export type { Breadcrumb, DeviceFacts, MonitorEvent, MonitorKind, MonitorLevel, MonitorOptions, MonitorPayload, MonitorUser } from './monitor';
 
-export { useBiometricVault, isVaultSupported, isVaultEnrolled, enrolVault, unlockVault, clearVault } from './vault';
+export { useBiometricVault, isVaultSupported, isVaultEnrolled, enrolVault, unlockVault, clearVault, rememberCredentials, forgetCredentials } from './vault';
+export { withSessionRecovery, isSessionInvalid } from './session/recovery';
+export type { SessionRecovery } from './session/recovery';
 export type { VaultCredentials } from './vault';
 export { BiometricSignIn } from './vault/BiometricSignIn';
 export { fetchWhatsNew } from './whats-new/WhatsNew';

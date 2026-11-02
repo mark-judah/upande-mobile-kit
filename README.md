@@ -29,6 +29,7 @@ Every feature name links to its section. "Needs" lists native modules beyond the
 | [Version information](#version-information) | App, runtime, running bundle, the kit's own version and the site's apps, including the backend | none |
 | [Fingerprint unlock](#fingerprint-unlock) | A fingerprint or face switch, or your app's own lock | `expo-local-authentication` |
 | [Fingerprint sign-in vault](#fingerprint-sign-in-vault) | Sign in with a fingerprint instead of typing the password | `expo-secure-store` |
+| [Silent re-login](#silent-re-login) | When the session dies mid-task, sign in again with the vault's credentials and retry, instead of sending the person to the login screen | the vault |
 
 **Fleet and monitoring**
 
@@ -44,10 +45,10 @@ Every feature name links to its section. "Needs" lists native modules beyond the
 | Feature | What it does | Needs |
 |---|---|---|
 | [Report a problem](#report-a-problem) | From any screen (header button, long-press or your own trigger): a screenshot, the device, the last requests and the last crash, filed as an Issue on your site | `react-native-view-shot` for the screenshot |
-| [Chat with support](#chat-with-support) | A conversation with your team inside the app | none |
+| [Chat with support](#chat-with-support) | The person's conversations with your team, as Issues: support answers with a comment on the Issue, the answer shows in the app | none |
 | [What's new](#whats-new) | The release notes, shown once after an update | none |
 | [Last crash capture](#last-crash-capture) | The crash that made someone write in is attached to their report | none |
-| [Connection banner](#connection-banner) | A warning when the phone is offline or the server is slow, with a Wi-Fi settings shortcut | none |
+| [Connection banner](#connection-banner) | A warning when the phone is really offline (even when Android claims otherwise) or the server is slow, with a Wi-Fi settings shortcut | none |
 
 **Tooling**
 
@@ -259,7 +260,9 @@ Each device also reports its kit version, so the [web portal](#the-web-portal) s
 
 ### OTA updates
 
-On open, the app checks for an over-the-air bundle. If one downloads in the first 20 seconds, the app restarts into it. A later download waits for the next opening, so the app never restarts under someone mid-task. Change the window with `otaOpenWindowMs`. OTA bundles carry JavaScript only: native changes need an [APK](#apk-updates). How bundles are published is in [Releasing](#releasing).
+On open, the app checks for an over-the-air bundle. If one downloads in the first 20 seconds, the app restarts into it. A later download waits for the next opening, so the app never restarts under someone mid-task. Change the window with `otaOpenWindowMs`.
+
+**On return to the app.** Handhelds are rarely restarted, so checking only at launch would leave them on old code for days. Each time the app comes back to the foreground (at most once every 10 minutes, `foregroundUpdateCheckMinMs`) it looks again: for a new APK (the daily check) and for a new bundle. A bundle found this way is downloaded and the person is **asked**: **Restart now** or **Later**. It is never applied behind their back, and is offered once per run. Turn it off with `otaOnForeground: false`. OTA bundles carry JavaScript only: native changes need an [APK](#apk-updates). How bundles are published is in [Releasing](#releasing).
 
 ### APK updates
 
@@ -365,6 +368,8 @@ Rules:
 - A marker must be a whole bracketed token. `[apkish]` or the word apk in a sentence does nothing.
 - `--bump minor`, `--bump major` and `--set` (workflow inputs) always win over markers. `--bump auto`, `patch`, or nothing leave the decision to the markers.
 - An Expo SDK upgrade still forces a minor bump and an APK, whatever the markers say.
+
+A line starting with `Note:` (or `What's new:`) in a commit body is a note for the **users** of the app. It leads the release notes under "What's new" and is what the in-app [What's new](#whats-new) sheet shows. It has no effect on the version.
 
 The conventional commit type (`type(scope): description`) does not change the release. It only sorts the release notes:
 
@@ -509,6 +514,26 @@ Set `biometric: 'vault'`. The vault stores the person's sign-in in the phone's s
    ```
 3. **How it signs in.** The button asks for the fingerprint, then hands the stored `{ server, user, password }` to your `onCredentials`, which runs your normal login. If the password was changed on the server, the login fails and the message shows under the button; the person signs in with the new password and turns the switch on again.
 
+### Silent re-login
+
+A session can die while someone is working (it expired, or the server restarted). Without help the app throws them to the login screen. With the vault on, the kit can sign in again by itself and retry the call:
+
+```ts
+configureMobileKit({
+  // ...
+  biometric: 'vault',
+  sessionRecovery: {
+    login: ({ server, user, password }) => myAppSignIn(server, user, password), // your normal login; refreshes the session
+    onFailure: () => router.replace('/login'),   // optional: nothing worked, send them to sign in
+  },
+});
+```
+
+- **What triggers it.** Not only HTTP 401: Frappe reports a dead session as a 400 CSRF failure, a 403 `AuthenticationError`, `session_expired`, or a 417 whose message says the session expired. All of those count; an ordinary permission error does not.
+- **The credentials** are kept in memory only, after a fingerprint unlock or when the person turns the vault on, and only for a person who did. Sign out and Forget this device drop them. Nothing is written to disk besides the vault itself.
+- **One retry.** A burst of failing calls shares a single login, and each call is retried once.
+- **For your own client**, wrap it: `withSessionRecovery(api, { login, onFailure })`. After a normal password login call `rememberCredentials({ server, user, password })` (it keeps them only if the vault is on), and call `forgetCredentials()` on your own sign-out.
+
 The password never leaves the phone and is never sent to your site except by your own login call. The kit keeps no copy outside secure storage; a plain marker (not the password) tells the screen whether one exists, so checking never prompts.
 
 ## The Devices page
@@ -635,11 +660,28 @@ The sheet is mounted by `<MobileKitProvider>`, so these work wherever the provid
 
 ### Chat with support
 
-A conversation between the person and your team. The person types, staff reply from the portal's Support page, and the reply shows in the app within a few seconds while the chat is open. A badge on the row counts unread replies.
+On a site with the **Issue** doctype (ERPNext or Helpdesk) a conversation **is an Issue**, the way your support team already works:
+
+- **The list** shows the person's own Issues for this app (their reports and questions), newest first, with the status and a dot on every conversation support has answered since they last opened it. The Help row shows how many.
+- **A conversation** opens with what they wrote, then every comment on the Issue. **Support replies by adding a Comment on the Issue in Desk**, no new tool to learn; the answer appears in the app within a few seconds while the conversation is open.
+- **The person answers** in the app; that is added as a Comment on the same Issue, and an Issue that was Replied or Resolved goes back to Open so support sees it. A Closed conversation cannot be replied to; the person starts a new one.
+- **New message** starts a conversation: a subject and the first message, filed as an Issue (with the diagnostics, without a screenshot).
+
+On a site without Issue the kit falls back to a single chat thread with support (Mobile Chat doctypes, answered from the portal's Support page).
+
+Only the person's own Issues are ever shown, and only replies they have not yet seen count as unread. Replies are not pushed to the phone (the badge updates when the app opens or the chat is open); push notifications would need `expo-notifications` and a push token on the user.
 
 ### What's new
 
-After the app updates, a sheet shows the new version's release notes once: the same notes the release workflow writes to the GitHub Release (Features, Fixes and so on, without commit hashes). It never shows on a first install, and shows nothing for a version without notes. The row in Settings reopens it any time. The notes are read from GitHub once per version.
+After the app updates, a sheet shows the new version's release notes once. It never shows on a first install, and shows nothing for a version without notes. The row in Settings reopens it any time. The notes are read from the GitHub Release, once per version.
+
+**Write them for the people who use the app.** Commit messages are written for developers ("fix: batch the reads"). Add a line starting with `Note:` (or `What's new:`) to the body of any commit and the release workflow puts it in a **What's new** section at the top of the release notes:
+
+```bash
+git commit -m "feat(scan): batch the reads" -m "Note: Scanning is twice as fast"
+```
+
+The in-app sheet then shows **only those lines**, with a "Show technical changes" link for the rest. A release with no `Note:` lines shows the full developer notes, as before.
 
 ### Last crash capture
 
@@ -647,7 +689,9 @@ Unhandled errors and render errors are saved on the phone, so a report filed aft
 
 ### Connection banner
 
-A banner appears when the phone has been offline for 25 seconds, or when the last round trip to your server took 3 seconds or more. It has a **Wi-Fi settings** shortcut, because an app cannot switch Wi-Fi itself on modern Android. Tune it with `connectionBanner: { staleAfterSec: 25, slowMs: 3000 }` or turn it off with `connectionBanner: false`.
+A banner appears when the phone has been offline for 25 seconds, or when the last round trip to your server took 3 seconds or more.
+
+**It does not trust Android alone.** Some handhelds (the Honeywell EDA52, for one) keep reporting "connected" after the Wi-Fi radio has stopped carrying data. So the kit also watches what really happens: after **two requests to your server in a row that never got an answer**, the phone counts as offline whatever Android says, and the kit probes the server every few seconds so a single answer clears it. Only your own server counts; a failing third-party call does not. It has a **Wi-Fi settings** shortcut, because an app cannot switch Wi-Fi itself on modern Android. Tune it with `connectionBanner: { staleAfterSec: 25, slowMs: 3000 }` or turn it off with `connectionBanner: false`.
 
 ## Configuration
 
@@ -676,7 +720,7 @@ configureMobileKit({
 | `authHeaders` | none | Extra headers for the built-in client |
 | `storage` | AsyncStorage, else memory | `{ get, set, remove }` |
 | `loginRoute` | `'/login'` | Where Sign out and Forget this device go |
-| `endpoints` | the `upande_mobile` paths | Override `registerInstall`, `installs`, `versions`, `ingest`, `submitReport`, `chat` |
+| `endpoints` | the `upande_mobile` paths | Override `registerInstall`, `installs`, `versions`, `ingest`, `submitReport`, `chat`, `supportThreads`, `supportThread`, `supportReply` |
 | `instanceKey`, `deviceKey` | none | Optional hooks: how a server URL becomes a storage key, and a better hardware id |
 
 Without `useAuth`, `api` and `storage` the kit runs on stand-ins. The Settings page looks fine, but sign-out, the biometric switch and the device register are not connected to your session. `init` wires them when it finds your auth store, API client and storage, development builds log what is still a stand-in, and `getConfigGaps()` returns the list.
@@ -688,6 +732,8 @@ Without `useAuth`, `api` and `storage` the kit runs on stand-ins. The Settings p
 | `apk.autoDownload` | `'wifi'` | `'wifi'`, `'always'` or `'never'`. The user's Settings choice wins |
 | `apk.force` | `true` | `true`: a downloaded APK blocks the app with a dialog that cannot be closed until it is installed ([forced install](#forced-install)). `false`: the dialog has a **Later** button |
 | `otaOpenWindowMs` | `20000` | A bundle downloaded within this long of opening restarts the app at once |
+| `otaOnForeground` | `true` | Also look for updates when the app returns to the foreground, and ask before restarting into a new bundle |
+| `foregroundUpdateCheckMinMs` | `600000` | Minimum time between two foreground update checks |
 | `foregroundReportMinMs` | `30000` | Minimum time between foreground device reports |
 
 ### Interface
@@ -704,6 +750,7 @@ Without `useAuth`, `api` and `storage` the kit runs on stand-ins. The Settings p
 
 | Key | Default | Meaning |
 |---|---|---|
+| `sessionRecovery` | none | `{ login, onFailure? }`: silent re-login for the kit's own calls when the session dies (needs the vault). See [Silent re-login](#silent-re-login) |
 | `biometric` | `'kit'` | `'kit'`: the Settings switch stores the choice and your sign-in flow acts on it. `'host'`: your app has its own lock and enforces it. `'vault'`: the kit keeps the sign-in behind the fingerprint. See [Fingerprint unlock](#fingerprint-unlock) |
 
 ### Help and support
@@ -829,10 +876,14 @@ npx upande-mobile-kit init --yes --site https://your.site --dev-site http://loca
 | `http://` site blocked | Cleartext not enabled in the native build | List the site under `expo.extra.mobileKit.sites` and make a new native build |
 | The Update required dialog keeps coming back | The installer was cancelled, or Android blocks installs from this app | Tap **Install now** and allow installs from this app when Android asks. Set `apk: { force: false }` for a dialog with **Later** |
 | No ring on the floating button while updating | The button is hidden (kit pages, keyboard, before sign-in) or `fab` is off | The ring is part of the floating button; see [the floating button](#the-floating-button) |
+| The What's new sheet shows commit-style text | The release has no `Note:` lines | Add `Note: ...` lines to commit bodies ([What's new](#whats-new)) |
 | **Report a problem** says it could not send | The backend is older than 0.2.0 or has not been migrated, or the phone is offline | Update `upande_mobile`, run `bench --site your.site migrate`, retry |
 | A report is not in the Issue list | The site has no Issue doctype, so it went to Mobile Report | Look under the portal's Support page, or install ERPNext/Helpdesk |
 | A report has no screenshot | `react-native-view-shot` is not in the build, or Settings was opened without the floating button | `npx expo install react-native-view-shot`, then a new native build |
-| **Chat with support** never shows replies | Nobody has replied yet, or the backend lacks the support endpoints | Reply from the portal's Support page; update and migrate the backend |
+| **Chat with support** never shows replies | Nobody has replied yet, or the backend lacks the support endpoints | On a site with Issues, reply with a Comment on the Issue in Desk. Update the backend to 0.3.0 or newer and run `bench migrate` |
+| A reply was written on the Issue but the person does not see it | It was an email reply or an internal note, not a Comment | Add a **Comment** on the Issue; only Comments appear in the app |
+| The offline banner never appears on one handheld model | Older kit versions trusted Android's "connected" | Update the kit; the banner now also counts failed requests |
+| The person is thrown to the login screen when the session expires | No silent re-login | Turn on the [vault](#fingerprint-sign-in-vault) and set `sessionRecovery.login` |
 | "What's new" never appears | A first install, no notes on that GitHub release, or `whatsNew: false` | Add notes through commit messages; the row in Settings reopens it |
 | The fingerprint switch says "Needs a newer build" | `expo-secure-store` is not in the running build | `npx expo install expo-secure-store`, then a new native build |
 | The banner says the connection is slow | The last round trip to your server took 3 seconds or more | Check the network; raise `connectionBanner.slowMs` or turn it off |

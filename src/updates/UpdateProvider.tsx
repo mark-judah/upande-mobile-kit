@@ -8,6 +8,7 @@ import {
   useState,
   type ReactNode,
 } from 'react';
+import { AppState } from 'react-native';
 import * as Updates from 'expo-updates';
 import {
   autoCheckForApk,
@@ -33,6 +34,7 @@ import { runAutoDownload, shouldPromptInstall } from './auto-download';
 import { getAutoDownloadMode } from './preferences';
 import { ForceUpdateGate } from './ForceUpdateGate';
 import { WhatsNewGate } from '../whats-new/WhatsNew';
+import { createForegroundGate } from '../devices/foreground-gate';
 
 /**
  * App-wide state for the APK channel: is a newer native build on GitHub, and
@@ -62,6 +64,7 @@ import { WhatsNewGate } from '../whats-new/WhatsNew';
  *  opening instead -- the app never restarts under someone mid-task. */
 const DEFAULT_OTA_OPEN_WINDOW_MS = 20 * 1000;
 const LAUNCHED_AT = Date.now();
+const DEFAULT_FOREGROUND_CHECK_MS = 10 * 60 * 1000;
 
 /** Still in the first moments after opening, when a restart interrupts nothing. */
 const justOpened = () => Date.now() - LAUNCHED_AT < (getConfig().otaOpenWindowMs ?? DEFAULT_OTA_OPEN_WINDOW_MS);
@@ -150,6 +153,44 @@ export function UpdateProvider({ children }: { children: ReactNode }) {
     if (__DEV__ || !Updates.isEnabled || !isUpdatePending) return;
     applyOtaOnOpen();
   }, [isUpdatePending, applyOtaOnOpen]);
+
+  // Coming back to the foreground: look again. Handhelds are rarely restarted, so launch-only checks leave them on old
+  // code for days. The APK check throttles itself to once a day; a JS bundle found here is offered, never forced.
+  const foregroundOffered = useRef(false);
+  useEffect(() => {
+    const allow = createForegroundGate(getConfig().foregroundUpdateCheckMinMs ?? DEFAULT_FOREGROUND_CHECK_MS);
+    const sub = AppState.addEventListener('change', (state) => {
+      if (state !== 'active' || !allow()) return;
+      autoCheckForApk().then(
+        (result) => {
+          if (result) setCheck((cur) => (cur && cur.available === result.available && cur.latestVersion === result.latestVersion ? cur : result));
+        },
+        () => {},
+      );
+      if (__DEV__ || !Updates.isEnabled || getConfig().otaOnForeground === false || foregroundOffered.current) return;
+      (async () => {
+        try {
+          const found = await Updates.checkForUpdateAsync();
+          if (!found.isAvailable) return;
+          const fetched = await Updates.fetchUpdateAsync();
+          if (!fetched.isNew || foregroundOffered.current) return;
+          foregroundOffered.current = true;
+          ui().showDialog(
+            'Update ready',
+            'A new version was downloaded. Restart now to use it?',
+            [
+              { text: 'Later', style: 'cancel' }, // the bundle is already downloaded: it applies the next time the app opens
+              { text: 'Restart now', onPress: () => void Updates.reloadAsync() },
+            ],
+            { name: 'cloud-download-outline', tone: 'success' },
+          );
+        } catch {
+          // Nothing to tell the person; the next return to the app tries again.
+        }
+      })();
+    });
+    return () => sub.remove();
+  }, []);
 
   // An APK downloaded before (in this run or an earlier one) is offered for
   // install straight away instead of being fetched again.

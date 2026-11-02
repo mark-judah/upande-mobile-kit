@@ -5,7 +5,13 @@
 
 export type NoteSection = { title: string; items: string[] };
 
-const ORDER = ['features', 'feature', 'fixes', 'bug fixes', 'improvements', 'performance', 'documentation', 'docs', 'chores', 'other'];
+const ORDER = ["what's new", 'features', 'feature', 'fixes', 'bug fixes', 'improvements', 'performance', 'documentation', 'docs', 'chores', 'other'];
+
+/** The friendly "What's new" lines (written for users) apart from the technical sections. */
+export function splitNotes(sections: NoteSection[]): { highlights: string[]; technical: NoteSection[] } {
+  const isHighlights = (s: NoteSection) => /^what['\u2019]?s new$/i.test(s.title);
+  return { highlights: sections.filter(isHighlights).flatMap((s) => s.items), technical: sections.filter((s) => !isHighlights(s)) };
+}
 
 export function parseReleaseNotes(body: string | null | undefined): NoteSection[] {
   const sections: NoteSection[] = [];

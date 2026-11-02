@@ -13,6 +13,7 @@ import { APP_VERSION, codeLine, getServerVersions } from '../version';
 import { KIT_VERSION } from '../kit-version';
 import { fontSize, spacing, ui } from '../ui/primitives';
 import { VaultRow } from '../vault/VaultRow';
+import { cacheCredentials } from '../session/recovery';
 import { SupportCard } from '../support/SupportCard';
 import { captureApiCall, captureException, flushNow, isMonitoringEnabled, monitoringReady, setMonitoringEnabled } from '../monitor';
 
@@ -123,6 +124,7 @@ export function SettingsScreen({
         text: 'Sign out',
         style: 'destructive',
         onPress: async () => {
+          cacheCredentials(null); // a signed-out phone must not sign itself back in
           await auth.logout?.();
           goToLogin();
         },
@@ -137,6 +139,7 @@ export function SettingsScreen({
         text: 'Forget',
         style: 'destructive',
         onPress: async () => {
+          cacheCredentials(null);
           await auth.forgetDevice?.();
           goToLogin();
         },

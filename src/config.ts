@@ -1,6 +1,7 @@
 import type { ComponentType, ReactNode } from 'react';
 import { createFetchApi, createLocalAuth, defaultStorage } from './defaults';
 import type { MonitorOptions } from './monitor/types';
+import { withSessionRecovery, type SessionRecovery } from './session/recovery';
 
 /**
  * Everything the kit needs from the host app, supplied once through
@@ -117,8 +118,14 @@ export type KitEndpoints = {
   ingest: string;
   /** Where "Report a problem" is sent. */
   submitReport: string;
-  /** The person's support chat: `GET` fetches messages, `POST` sends one. */
+  /** The single-thread chat used by sites without an Issue doctype: `GET` fetches messages, `POST` sends one. */
   chat: string;
+  /** The person's conversations with support (their Issues for this app). */
+  supportThreads: string;
+  /** One conversation: what they wrote, then the comments on the Issue. */
+  supportThread: string;
+  /** The person's answer on a conversation. */
+  supportReply: string;
 };
 
 export const DEFAULT_ENDPOINTS: KitEndpoints = {
@@ -128,6 +135,9 @@ export const DEFAULT_ENDPOINTS: KitEndpoints = {
   ingest: '/api/method/upande_mobile.api.monitor.ingest',
   submitReport: '/api/method/upande_mobile.api.support.submit_report',
   chat: '/api/method/upande_mobile.api.support.chat',
+  supportThreads: '/api/method/upande_mobile.api.support.threads',
+  supportThread: '/api/method/upande_mobile.api.support.thread',
+  supportReply: '/api/method/upande_mobile.api.support.reply',
 };
 
 /** How the APK update is fetched once a newer one is found. */
@@ -267,6 +277,20 @@ export type MobileKitConfig = {
   onAvatarLongPress?: () => void;
   /** A bundle downloaded within this long of opening is applied by an immediate restart. */
   otaOpenWindowMs?: number;
+  /**
+   * Silent re-login for the kit's own calls (device register, reports, support, crash reports): when the server says
+   * the session is dead, `login` is called with the credentials the person kept behind their fingerprint (see the
+   * vault) and the call is retried once. Wrap your own client with `withSessionRecovery` to get the same.
+   */
+  sessionRecovery?: SessionRecovery;
+  /**
+   * Also look for an update each time the app comes back to the foreground (default `true`). Handhelds are rarely
+   * restarted, so checking only at launch would leave them on old code for days. A bundle found this way is not
+   * applied behind the person's back: they are asked "Restart now / Later".
+   */
+  otaOnForeground?: boolean;
+  /** Minimum time between two foreground update checks, ms (default 600000, ten minutes). */
+  foregroundUpdateCheckMinMs?: number;
 };
 
 /** Which pieces the host did not pass, so the kit is running on its built-in stand-ins. */
@@ -306,7 +330,7 @@ export function configureMobileKit(config: MobileKitConfig): void {
     site,
     environment,
     storage,
-    api: config.api ?? createFetchApi(site, config.authHeaders),
+    api: config.sessionRecovery ? withSessionRecovery(config.api ?? createFetchApi(site, config.authHeaders), config.sessionRecovery) : (config.api ?? createFetchApi(site, config.authHeaders)),
     useAuth: config.useAuth ?? createLocalAuth(site),
     theme: { ...DEFAULT_THEME, ...config.theme },
     endpoints: { ...DEFAULT_ENDPOINTS, ...config.endpoints },

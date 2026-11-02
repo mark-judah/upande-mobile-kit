@@ -3,7 +3,7 @@ import * as vault from '../src/vault/vault-core';
 import { describeCrash, forgetCrash, peekCrash, rememberCrash } from '../src/support/crash-store';
 import { parseReleaseNotes, shouldShowWhatsNew } from '../src/whats-new/notes';
 import { bannerState, bannerText, isOffline, resolveBanner } from '../src/ui/connection-logic';
-import { mergeMessages } from '../src/support/support-api';
+import { loadSeen, markSeen, mergeMessages, unreadThreads, type ThreadSummary } from '../src/support/support-api';
 import { summarizeDiagnostics, type Diagnostics } from '../src/support/diagnostics';
 import { supportOptions } from '../src/support/options';
 import { KitKeys } from '../src/config';
@@ -179,5 +179,44 @@ describe('versions shown in Settings', () => {
     expect(serverAppsToShow(undefined).map((a: [string, string]) => a[0])).toEqual(['frappe', 'erpnext', KIT_SERVER_APP]);
     expect(serverAppsToShow([['frappe', 'Frappe']]).map((a: [string, string]) => a[0])).toEqual(['frappe', KIT_SERVER_APP]);
     expect(serverAppsToShow([[KIT_SERVER_APP, 'Mine']])).toEqual([[KIT_SERVER_APP, 'Mine']]);
+  });
+});
+
+describe('conversation unread tracking', () => {
+  const th = (id: string, staff: string | null): ThreadSummary => ({ id, subject: id, status: 'Open', last_activity: 'x', last_staff_at: staff, preview: '' });
+  it('a conversation is unread when support answered after the person last looked', () => {
+    const threads = [th('A', '2026-11-02 10:00:00'), th('B', null), th('C', '2026-11-02 09:00:00')];
+    expect(unreadThreads(threads, {})).toEqual(['A', 'C']);
+    expect(unreadThreads(threads, { A: '2026-11-02 10:00:00', C: '2026-11-02 08:00:00' })).toEqual(['C']);
+  });
+  it('remembers what was seen, never moves backwards and ignores empty marks', async () => {
+    await markSeen('A', '2026-11-02 10:00:00');
+    await markSeen('A', '2026-11-02 09:00:00');
+    await markSeen('B', null);
+    expect(await loadSeen()).toEqual({ A: '2026-11-02 10:00:00' });
+  });
+  it('keeps only the newest 50 conversations', async () => {
+    for (let i = 0; i < 60; i += 1) await markSeen(`T${i}`, `2026-11-02 10:${String(i).padStart(2, '0')}:00`);
+    const seen = await loadSeen();
+    expect(Object.keys(seen)).toHaveLength(50);
+    expect(seen.T59).toBeDefined();
+    expect(seen.T0).toBeUndefined();
+  });
+});
+
+describe('user-facing release notes', () => {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const { splitNotes } = require('../src/whats-new/notes');
+  it('puts the lines written for users first and keeps the developer sections apart', () => {
+    const sections = parseReleaseNotes(["## v1.3.0", "", "### What's new", "", "- Scanning is twice as fast", "- You can report a problem from any screen", "", "### Features", "", "- **scan:** batch the reads (abc1234)", "", "### Chores", "", "- bump kit (def5678)"].join('\n'));
+    expect(sections.map((x) => x.title)).toEqual(["What's new", 'Features', 'Chores']);
+    const { highlights, technical } = splitNotes(sections);
+    expect(highlights).toEqual(['Scanning is twice as fast', 'You can report a problem from any screen']);
+    expect(technical.map((x: { title: string }) => x.title)).toEqual(['Features', 'Chores']);
+  });
+  it('with no friendly lines everything is technical', () => {
+    const { highlights, technical } = splitNotes(parseReleaseNotes('### Fixes\n\n- stop the flicker (abc1234)'));
+    expect(highlights).toEqual([]);
+    expect(technical).toHaveLength(1);
   });
 });

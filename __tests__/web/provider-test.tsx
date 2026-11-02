@@ -41,7 +41,9 @@ import { ROUTE_CHECK_DELAY_MS, resetRouteGuard } from '../../src/route-guard';
 let root: Root;
 let host: HTMLElement;
 let warn: jest.SpyInstance;
-let appStateHandler: ((s: string) => void) | undefined;
+const appStateHandlers: ((s: string) => void)[] = [];
+// Several parts of the provider listen to AppState (device reports, update checks): an event reaches all of them.
+const appStateHandler = (s: string) => appStateHandlers.forEach((h) => h(s));
 
 beforeEach(() => {
   jest.useFakeTimers().setSystemTime(10_000_000);
@@ -50,9 +52,9 @@ beforeEach(() => {
   mockPath.current = '/';
   auth.user = 'test@example.com';
   warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
-  appStateHandler = undefined;
+  appStateHandlers.length = 0;
   jest.spyOn(AppState, 'addEventListener').mockImplementation(((_: string, h: (s: string) => void) => {
-    appStateHandler = h;
+    appStateHandlers.push(h);
     return { remove: () => {} };
   }) as never);
   host = document.createElement('div');
@@ -123,28 +125,28 @@ describe('foreground report debounce', () => {
   it('lets one through per 30 s however many "active" events fire', () => {
     setup();
     mount(<MobileKitProvider><div /></MobileKitProvider>);
-    expect(appStateHandler).toBeDefined();
+    expect(appStateHandlers.length).toBeGreaterThan(0);
     expect(mockReport.mock.calls.some((c) => c[0]?.reason === 'launch')).toBe(true);
-    act(() => appStateHandler!('active'));
+    act(() => appStateHandler('active'));
     for (let i = 0; i < 4; i += 1) {
       advance(3000);
-      act(() => appStateHandler!('active')); // a lock screen / permission prompt bouncing
+      act(() => appStateHandler('active')); // a lock screen / permission prompt bouncing
     }
     expect(foreground()).toHaveLength(1);
     advance(30_000);
-    act(() => appStateHandler!('active'));
+    act(() => appStateHandler('active'));
     expect(foreground()).toHaveLength(2);
   });
 
   it('ignores non-active states and honours foregroundReportMinMs', () => {
     setup({ foregroundReportMinMs: 1000 });
     mount(<MobileKitProvider><div /></MobileKitProvider>);
-    act(() => appStateHandler!('background'));
-    act(() => appStateHandler!('inactive'));
+    act(() => appStateHandler('background'));
+    act(() => appStateHandler('inactive'));
     expect(foreground()).toHaveLength(0);
-    act(() => appStateHandler!('active'));
+    act(() => appStateHandler('active'));
     advance(1500);
-    act(() => appStateHandler!('active'));
+    act(() => appStateHandler('active'));
     expect(foreground()).toHaveLength(2);
   });
 });

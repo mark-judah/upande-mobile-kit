@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { ui } from '../ui/primitives';
-import { ChatModal } from './ChatModal';
+import { SupportInbox } from './SupportInbox';
 import { onSupportRequest, type SupportSheet } from './controller';
 import { ReportIssueModal } from './ReportIssueModal';
 
@@ -23,5 +23,5 @@ export function SupportHost() {
       />
     );
   }
-  return open === 'chat' ? <ChatModal onClose={() => setOpen(null)} /> : null;
+  return open === 'chat' ? <SupportInbox onClose={() => setOpen(null)} /> : null;
 }

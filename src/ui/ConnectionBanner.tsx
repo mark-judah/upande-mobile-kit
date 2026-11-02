@@ -3,6 +3,7 @@ import { AppState, Linking, Platform, Pressable, StyleSheet, Text, View } from '
 import { getConfig } from '../config';
 import { hasNativeModule } from '../native-probe';
 import { lastLatencyMs, refreshLatency, getProbeSite } from '../monitor/net-stats';
+import { isForcedOffline } from '../monitor/link-health';
 import { useInsets } from './insets';
 import { bannerState, bannerText, isOffline, resolveBanner, type BannerState } from './connection-logic';
 
@@ -49,9 +50,12 @@ export function ConnectionBanner() {
       const link = await readLink();
       if (!alive) return;
       const now = Date.now();
-      if (isOffline(link)) offlineSince ??= now;
+      // The OS can say "connected" while nothing gets through (some handhelds do), so failed requests count too.
+      const forced = isForcedOffline();
+      if (isOffline(link) || forced) offlineSince ??= now;
       else offlineSince = null;
-      refreshLatency(getProbeSite() || getConfig().site);
+      // While offline, probe the server every tick so recovery is noticed at once.
+      refreshLatency(getProbeSite() || getConfig().site, { force: forced });
       setState(bannerState({ offlineSince, now, staleAfterMs: opts.staleAfterMs, latencyMs: lastLatencyMs(), slowMs: opts.slowMs }));
     };
     void tick();

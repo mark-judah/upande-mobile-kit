@@ -1,3 +1,5 @@
+import { noteNetworkResult } from './link-health';
+
 /**
  * How the network treats this app: how long its own API calls take (rolling, in memory) and how long a tiny
  * request to the server takes right now. Cheap by construction: recording a call is O(1), the latency probe runs
@@ -52,16 +54,16 @@ export function lastLatencyMs(): number | undefined {
 }
 
 /**
- * Starts a latency probe when the last one is stale. Returns at once; the answer shows up in `lastLatencyMs()`.
+ * Starts a latency probe when the last one is stale (or at once with `force`, which the offline banner uses to notice recovery). Returns at once; the answer shows up in `lastLatencyMs()`.
  * A timeout records the timeout itself, so a dead link shows as slow rather than as nothing.
  */
 export function refreshLatency(
   site: string | undefined,
-  deps: { fetchImpl?: typeof fetch; now?: () => number } = {},
+  deps: { fetchImpl?: typeof fetch; now?: () => number; force?: boolean } = {},
 ): void {
   const now = deps.now ?? Date.now;
   const doFetch = deps.fetchImpl ?? (typeof fetch === 'function' ? fetch : undefined);
-  if (!site || !doFetch || probing || (latency && now() - latency.at < LATENCY_TTL_MS)) return;
+  if (!site || !doFetch || probing || (!deps.force && latency && now() - latency.at < LATENCY_TTL_MS)) return;
   probing = true;
   const started = now();
   const controller = typeof AbortController === 'function' ? new AbortController() : undefined;
@@ -70,9 +72,11 @@ export function refreshLatency(
     .then(
       () => {
         latency = { at: now(), ms: Math.max(1, now() - started) };
+        noteNetworkResult(true);
       },
       () => {
         latency = { at: now(), ms: LATENCY_TIMEOUT_MS };
+        noteNetworkResult(false);
       },
     )
     .finally(() => {

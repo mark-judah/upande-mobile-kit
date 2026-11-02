@@ -4,6 +4,7 @@ import { getConfig, KitKeys } from '../config';
 import { hasNativeModule } from '../native-probe';
 import * as Biometric from '../biometric';
 import * as core from './vault-core';
+import { cacheCredentials } from '../session/recovery';
 
 export type { VaultCredentials } from './vault-core';
 
@@ -58,18 +59,39 @@ export async function isVaultEnrolled(): Promise<boolean> {
 /** Store the sign-in behind the fingerprint (asks the person to confirm with it first). */
 export async function enrolVault(c: core.VaultCredentials, prompt?: string): Promise<boolean> {
   const d = deps();
-  return d ? core.enrol(d, c, prompt) : false;
+  const ok = d ? await core.enrol(d, c, prompt) : false;
+  if (ok) cacheCredentials(c);
+  return ok;
 }
 
 /** The stored sign-in, after the fingerprint prompt; null when cancelled or none is stored. */
 export async function unlockVault(prompt?: string): Promise<core.VaultCredentials | null> {
   const d = deps();
-  return d ? core.unlock(d, prompt) : null;
+  const creds = d ? await core.unlock(d, prompt) : null;
+  // Kept in memory for silent re-login (see `sessionRecovery`); never written anywhere else.
+  if (creds) cacheCredentials(creds);
+  return creds;
+}
+
+/**
+ * Call after a successful password sign-in: keeps the credentials in memory for silent re-login, but only for a
+ * person who turned the fingerprint vault on (no vault, no copy). Returns whether they were kept.
+ */
+export async function rememberCredentials(c: core.VaultCredentials): Promise<boolean> {
+  if (!(await isVaultEnrolled())) return false;
+  cacheCredentials(c);
+  return true;
+}
+
+/** Drop the in-memory copy. Call on sign-out (the kit's own Sign out does). The stored vault is untouched. */
+export function forgetCredentials(): void {
+  cacheCredentials(null);
 }
 
 export async function clearVault(): Promise<void> {
   const d = deps();
   if (d) await core.clear(d);
+  cacheCredentials(null);
 }
 
 /**

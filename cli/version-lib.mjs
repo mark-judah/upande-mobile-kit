@@ -178,6 +178,19 @@ export function parseCommit(commit) {
   };
 }
 
+/**
+ * User-facing notes: lines in a commit body that start with `Note:` or `What's new:`. They are written for the
+ * people who use the app (the release notes show them first, and the in-app "What's new" shows only them by default).
+ */
+export function userNotes(commit) {
+  const out = [];
+  for (const line of String(commit.body ?? '').split(/\r?\n/)) {
+    const m = /^\s*(?:notes?|what['\u2019]?s new)\s*:\s*(.+?)\s*$/i.exec(line);
+    if (m && m[1]) out.push(m[1]);
+  }
+  return out;
+}
+
 export const SECTIONS = [
   ['feat', 'Features'],
   ['fix', 'Bug Fixes'],
@@ -192,6 +205,8 @@ export const SECTIONS = [
 export function releaseNotes(version, commits, tag, repo) {
   const line = (c) => `- ${c.scope ? `**${c.scope}:** ` : ''}${c.description} (${c.hash.slice(0, 7)})`;
   const out = [`## v${version}`, ''];
+  const notes = commits.flatMap(userNotes);
+  if (notes.length) out.push("### What's new", '', ...notes.map((n) => `- ${n}`), '');
   const breaking = commits.filter((c) => c.breaking);
   if (breaking.length) out.push('### ⚠ BREAKING CHANGES', '', ...breaking.map(line), '');
   for (const [type, heading] of SECTIONS) {

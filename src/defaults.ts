@@ -30,6 +30,32 @@ export function defaultStorage(): KitStorage {
   };
 }
 
+/**
+ * The human message in a Frappe error body: the first `_server_messages` entry, else `message`, else the text after
+ * the exception class (`frappe.exceptions.ValidationError: Item not found` -> "Item not found"). Null when none.
+ */
+export function frappeErrorMessage(body: unknown): string | null {
+  if (!body || typeof body !== 'object') return null;
+  const b = body as Record<string, unknown>;
+  const clean = (t: string) => t.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+  if (typeof b._server_messages === 'string') {
+    try {
+      const list = JSON.parse(b._server_messages) as unknown[];
+      for (const entry of list) {
+        const m = typeof entry === 'string' ? (JSON.parse(entry) as { message?: unknown }) : (entry as { message?: unknown });
+        if (typeof m?.message === 'string' && clean(m.message)) return clean(m.message);
+      }
+    } catch {
+      // fall through
+    }
+  }
+  if (typeof b.message === 'string' && clean(b.message)) return clean(b.message);
+  const exc = typeof b.exception === 'string' ? b.exception : typeof b.exc === 'string' ? b.exc : '';
+  const after = /^[\w.]+Error:\s*(.+)$|^[\w.]+Exception:\s*(.+)$|^[\w.]+:\s*(.+)$/s.exec(exc.split('\n')[0]);
+  const text = after ? (after[1] ?? after[2] ?? after[3]) : '';
+  return text && clean(text) ? clean(text) : null;
+}
+
 /** `fetch` against `site`: resolves to the JSON body, rejects with the server's own message. */
 export function createFetchApi(
   site: string | undefined,
@@ -52,14 +78,14 @@ export function createFetchApi(
       body: req.data !== undefined ? JSON.stringify(req.data) : undefined,
     });
     if (!res.ok) {
-      let message = `The server answered ${res.status}.`;
+      let body: unknown;
       try {
-        const body = await res.json();
-        if (typeof body?.message === 'string' && body.message) message = body.message;
+        body = await res.json();
       } catch {
         // not JSON
       }
-      throw new Error(message);
+      // The status and body ride on the error so callers (session recovery, error screens) can read them.
+      throw Object.assign(new Error(frappeErrorMessage(body) ?? `The server answered ${res.status}.`), { status: res.status, body });
     }
     return (await res.json()) as T;
   };

@@ -6,9 +6,9 @@ import { fontSize, spacing, ui, useTheme } from '../ui/primitives';
 import { APP_VERSION } from '../version';
 import { fetchWhatsNew, WhatsNewSheet } from '../whats-new/WhatsNew';
 import type { NoteSection } from '../whats-new/notes';
-import { ChatModal } from './ChatModal';
+import { SupportInbox } from './SupportInbox';
 import { ReportIssueModal } from './ReportIssueModal';
-import { fetchUnread } from './support-api';
+import { fetchUnreadCount } from './support-api';
 import { supportOptions } from './options';
 
 /** The "Help" card in Settings: report a problem, chat with support, and the notes of this version. */
@@ -28,7 +28,7 @@ export function SupportCard() {
 
   useEffect(() => {
     if (!opts.chat || !signedIn) return;
-    fetchUnread().then(setUnread, () => {});
+    fetchUnreadCount().then(setUnread, () => {});
   }, [opts.chat, signedIn, open]);
 
   if (!opts.report && !opts.chat && !notes) return null;
@@ -74,7 +74,7 @@ export function SupportCard() {
           }}
         />
       ) : null}
-      {open === 'chat' ? <ChatModal onClose={() => setOpen(null)} /> : null}
+      {open === 'chat' ? <SupportInbox onClose={() => setOpen(null)} /> : null}
       {open === 'notes' ? <WhatsNewSheet version={APP_VERSION} sections={sections} loading={loadingNotes} onClose={() => setOpen(null)} /> : null}
     </>
   );
