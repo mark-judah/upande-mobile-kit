@@ -678,7 +678,7 @@ When support answers a conversation, the person's phone gets a push notification
 
 **For the person.** Settings > Help has a **Notify me about replies** switch. They are also asked once, in words, right after their first message. Turning it on asks Android for permission. The switch only appears in a build that can receive notifications.
 
-**How it works.** The phone registers its Expo push token with your site (`register_push`), kept per person and app. When someone on your team adds a **Comment** to the person's Issue, the site sends the push through Expo's push service (`https://exp.host`, nothing else is contacted). The notification says "Reply on <subject>" and shows the start of the reply. A token Expo reports as gone is deleted. Signing out forgets the phone's token, and the next person to sign in registers it for themselves. The kit never changes how your app's own notifications are shown, and only reacts to notifications that carry its own marker.
+**How it works.** The phone registers its Expo push token with your site (`register_push`), kept per person and app. When someone on your team adds a **Comment** to the person's Issue, the site sends the push through Expo's push service (nothing else is contacted). The notification says "Reply on <subject>" and shows the start of the reply. A token Expo reports as gone is deleted. Signing out forgets the phone's token, and the next person to sign in registers it for themselves. The kit never changes how your app's own notifications are shown, and only reacts to notifications that carry its own marker.
 
 **What the app needs** (once, all of it is standard Expo):
 
