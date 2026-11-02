@@ -134,6 +134,12 @@ export type KitApkOptions = {
    * the person taps. The person can change it in Settings; that choice wins.
    */
   autoDownload?: ApkAutoDownload;
+  /**
+   * `true` (default): once a newer APK has been downloaded, a full-screen "Update required" dialog covers the app
+   * and cannot be closed (the Android back button included) until the new version is installed. `false`: the
+   * dialog offers "Later" and asks again on the next opening.
+   */
+  force?: boolean;
 };
 
 /** The kit's pages live in their own folder so they can never collide with a screen the app already has. */
@@ -224,8 +230,9 @@ export type MobileKitConfig = {
   fab?: boolean | 'dev' | KitFabOptions;
   /**
    * Who owns the biometric lock. `'kit'` (default): the Settings page shows the kit's unlock switch. `'host'`:
-   * the app already locks itself (e.g. with expo-local-authentication), so the kit hides its switch and never
-   * prompts; the host's own lock is the only one.
+   * the app already locks itself (e.g. with expo-local-authentication) and the kit never enforces a lock of
+   * its own. The Settings switch still shows when your `useAuth` is wired: it sets YOUR `biometricEnabled`, and your
+   * app does the locking. Without a wired `useAuth` the switch is hidden (there is no real setting behind it).
    */
   biometric?: 'kit' | 'host';
   /**

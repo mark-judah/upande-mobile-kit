@@ -28,6 +28,19 @@ export type DeviceFacts = {
   is_connected?: boolean;
   is_internet_reachable?: boolean;
   carrier?: string;
+  /** Wi-Fi name; needs `@react-native-community/netinfo` and, on Android 10+, the location permission. */
+  wifi_ssid?: string;
+  wifi_signal_pct?: number;
+  wifi_link_mbps?: number;
+  wifi_frequency_mhz?: number;
+  cellular_generation?: string;
+  /** Round trip to the server in ms (a tiny GET, at most once a minute). */
+  latency_ms?: number;
+  /** Recent API calls: how many, mean and 95th-percentile response time (ms), share that failed (%). */
+  api_calls?: number;
+  api_avg_ms?: number;
+  api_p95_ms?: number;
+  api_error_pct?: number;
   locale?: string;
   timezone?: string;
   screen?: { width: number; height: number; scale: number; font_scale: number };

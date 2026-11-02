@@ -7,6 +7,7 @@ import { missingModuleNames } from '../modules';
 import { getConfig, isConfigured } from '../config';
 import { APP_VERSION, runtimeVersion } from '../version';
 import { LIMITS, type DeviceFacts } from './types';
+import { apiTimingSummary, getProbeSite, lastLatencyMs, refreshLatency } from './net-stats';
 
 /**
  * Device facts for a report. Static facts are read once; dynamic ones (battery,
@@ -135,7 +136,13 @@ async function readDynamic(): Promise<DeviceFacts> {
     disk('total'),
   ]);
   const types = n?.NetworkStateType as Record<string | number, string> | undefined;
+  // Background latency probe (answer shows up on a later read) and the optional link details; neither is waited on.
+  refreshLatency(siteUrl());
+  const link = await withTimeout(linkDetails(), t);
   return strip({
+    ...link,
+    latency_ms: lastLatencyMs(),
+    ...apiTimingSummary(),
     battery_level: typeof level === 'number' && level >= 0 ? level : undefined,
     battery_state: state !== undefined ? (str(b?.BatteryState?.[state]) ?? String(state)).toLowerCase() : undefined,
     low_power_mode: typeof lowPower === 'boolean' ? lowPower : undefined,
@@ -144,6 +151,32 @@ async function readDynamic(): Promise<DeviceFacts> {
     is_internet_reachable: typeof net?.isInternetReachable === 'boolean' ? net.isInternetReachable : undefined,
     storage_free_bytes: free,
     storage_total_bytes: total,
+  });
+}
+
+function siteUrl(): string | undefined {
+  try {
+    return getProbeSite() || getConfig().site || undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/** Wi-Fi name / link speed / signal, when `@react-native-community/netinfo` is installed in the build. */
+async function linkDetails(): Promise<Partial<DeviceFacts>> {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports -- optional, only after its native side answers
+  const ni = optional('RNCNetInfo', () => require('@react-native-community/netinfo'));
+  const fetchState = ni?.fetch ?? ni?.default?.fetch;
+  if (!fetchState) return {};
+  const state = await fetchState.call(ni?.default ?? ni);
+  const d = (state?.details ?? {}) as Record<string, unknown>;
+  return strip({
+    wifi_ssid: str(d.ssid) && d.ssid !== '<unknown ssid>' ? str(d.ssid) : undefined,
+    wifi_signal_pct: num(d.strength),
+    wifi_link_mbps: num(d.linkSpeed) ?? num(d.txLinkSpeed),
+    wifi_frequency_mhz: num(d.frequency),
+    cellular_generation: str(d.cellularGeneration),
+    carrier: str(d.carrier),
   });
 }
 

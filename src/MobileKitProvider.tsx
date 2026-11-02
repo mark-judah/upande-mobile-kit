@@ -8,6 +8,7 @@ import { watchKitRoute } from './route-guard';
 import { usePathname } from 'expo-router';
 import { KitFab } from './ui/KitFab';
 import { missingModules, missingSummary } from './modules';
+import { setProbeSite } from './monitor/net-stats';
 import { addBreadcrumb, MonitorErrorBoundary, setMonitorContext, startMonitor } from './monitor';
 
 /**
@@ -67,6 +68,10 @@ function MonitorBridge() {
   useEffect(() => {
     startMonitor();
   }, []);
+
+  useEffect(() => {
+    setProbeSite(auth.instanceUrl);
+  }, [auth.instanceUrl]);
 
   useEffect(() => {
     setMonitorContext({

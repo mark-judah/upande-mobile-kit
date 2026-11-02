@@ -24,6 +24,18 @@ afterEach(() => {
   resetReportState();
 });
 
+describe('api timing feed', () => {
+  it('counts every call, successful or not, but never the latency probe', async () => {
+    await start();
+    const { apiTimingSummary, resetNetStats } = jest.requireActual('../src/monitor/net-stats');
+    resetNetStats();
+    captureApiCall({ method: 'GET', url: '/ok', status: 200, durationMs: 40 });
+    captureApiCall({ method: 'GET', url: '/bad', status: 500, durationMs: 60 });
+    captureApiCall({ method: 'GET', url: 'https://s.example.com/api/method/ping', status: 200, durationMs: 9999 });
+    expect(apiTimingSummary()).toMatchObject({ api_calls: 2, api_avg_ms: 50, api_error_pct: 50 });
+  });
+});
+
 describe('wire contract', () => {
   it('posts one form field `payload` holding {app, install_id, sent_at, events} to the ingest endpoint', async () => {
     await start();

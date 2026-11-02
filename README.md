@@ -354,7 +354,7 @@ From top to bottom, the page shows:
 |---|---|
 | Profile | The user's initial, name, email and site, taken from your `useAuth` |
 | Dev notice | Development builds only: which of `useAuth`, `api` and `storage` are still on the kit's stand-ins |
-| Security | The **Biometric unlock** switch (see [Fingerprint unlock](#fingerprint-unlock)). Hidden when `biometric: 'host'` |
+| Security | The **Biometric unlock** switch (see [Fingerprint unlock](#fingerprint-unlock)). Shown with `biometric: 'host'` too whenever your own `useAuth` is wired: it sets your `biometricEnabled` and your app does the locking |
 | Diagnostics | The **Send crash reports** switch, and a **Send test error** button in development. Hidden with `monitor.showToggle: false` |
 | App & Server | The app name, the site, the versions of the apps on the site (Frappe and ERPNext by default), **Installed** version, **Latest** version, which bundle is running (embedded build, or the OTA bundle id, date and channel), the **Check for updates** button and the **Download updates** choice (see [Updates on the phone](#updates-on-the-phone)) |
 | Not available in this build | Only when an optional native module is missing, for example "Battery info unavailable: rebuild required" |
@@ -405,7 +405,7 @@ The **Biometric unlock** switch lives in the Security card of the Settings page.
   ```
 
   The helper is safe on a build without the native module: it reports "not available" instead of crashing.
-- **If your app already has its own lock**, set `biometric: 'host'`. The kit then hides its switch so there is one lock and one switch. `init` detects an existing use of `expo-local-authentication` and sets this for you.
+- **If your app already has its own lock**, set `biometric: 'host'`. The kit then never prompts for or enforces a lock itself, so there is one lock. The Settings switch stays when your `useAuth` provides `biometricEnabled` and `setBiometricEnabled`: it flips your own setting (after a fingerprint check when turning it on), and your app does the locking. Without a wired `useAuth` the switch is hidden, because there would be no real setting behind it. `init` detects an existing use of `expo-local-authentication` and sets `biometric: 'host'` for you.
 - **Sign out and Forget this device** are in the Session card. Sign out asks "You can sign back in with biometrics or your password." Forget this device asks "Clears your session and disables biometric unlock." Both call the functions your `useAuth` provides and then go to `loginRoute` (default `/login`).
 
 ## Updates on the phone
@@ -413,6 +413,8 @@ The **Biometric unlock** switch lives in the Security card of the Settings page.
 - **On open.** The app checks for an OTA bundle. If one downloads in the first 20 seconds, it restarts into it. A later download waits for the next opening, so the app never restarts under someone mid-task.
 - **Check for updates.** The one button in App & Server. It checks GitHub Releases for a new APK first, because a new APK carries a new runtime and supersedes any OTA bundle. If the APK is current it asks for an OTA bundle. When an APK is available the same button reads **Download v1.3.0 (size)**, then **Install v1.3.0**.
 - **Download updates.** A choice under that button: **Wi-Fi only** (the default), **Any network** or **Off**. The user's choice wins over `apk.autoDownload`. Once a day the app checks GitHub Releases; on Wi-Fi it downloads a newer APK in the background and offers **Install now**. **Later** is remembered for that version. A finished download is kept, so a dismissed installer can be reopened without downloading again.
+- **A downloaded APK must be installed.** Once a newer APK is on the phone, an **Update required** dialog covers the whole app. It has one button, **Install now**; the Android back button does nothing. If the person cancels Android's installer they land on the dialog again, and if Android has not yet allowed installs from this app the dialog offers a shortcut to that setting. Set `apk: { force: false }` for the old behaviour: an **Install now / Later** prompt that asks again next time.
+- **You can see that something is downloading.** While an APK (or an OTA bundle) downloads, a ring of dots appears around the floating Settings button. For an APK the dots light up clockwise with the real progress; an OTA bundle has no known size, so a short arc travels around the ring instead. The ring is part of the floating button, so it is hidden with it: on the kit's own pages, while the keyboard is open, and (with your own `useAuth` wired) before sign-in. The Settings page shows the same progress as text.
 - **Android cannot install an APK silently.** The user always confirms in Android's installer, and the first time Android also asks to allow installs from this app.
 
 ## Local and production sites
@@ -441,6 +443,7 @@ On by default. Everything captured is shown in the [web portal](#the-web-portal)
 - The last 30 screens and API calls as breadcrumbs.
 - The device: OS version and build, brand, model, battery level and state, low-power mode, free and total storage, memory, network, locale, time zone, screen, build type, app, runtime and update ids, and any optional native modules missing from this build.
 - The signed-in user your `useAuth` reports: id, name and roles.
+- **The connection and how it performs**, with every report and device snapshot: connection type, the round trip to your server (a tiny `GET /api/method/ping`, at most once a minute, in the background), and how long the app's own API calls are taking: count, average and 95th-percentile response time and the share that failed, over the last 100 calls. Install `@react-native-community/netinfo` (`npx expo install @react-native-community/netinfo`, then make a new native build) to add the **Wi-Fi name, signal strength, link speed and band**, and the cellular generation. Android only shows the Wi-Fi name when the app holds the location permission; without it that one field is left out. Nothing here is a speed test: link speed is what the radio negotiated, and latency and response times are measured from real use.
 
 **Cost to the app.** Capturing only pushes a small object into a bounded in-memory buffer. Redaction, serialising and device probes run later, off the interaction path, in one batched request: every 30 seconds while events wait, at 20 events, and when the app goes to the background. Repeats within 60 seconds become one event with a count, a session sends at most 200 events, and an offline queue (100 events, 1 MB) retries with back-off. Reports need a signed-in session; earlier events wait and are sent after sign-in.
 
@@ -489,6 +492,7 @@ configureMobileKit({
 | `fab` | `true` | `true`, `false`, `'dev'` (development builds only) or `{ initialSide: 'left' \| 'right', bottom: 96, whenSignedOut: false }`. With your own `useAuth` wired the button hides until someone is signed in (your sign-in gate would send the page straight back to login); `whenSignedOut: true` shows it anyway |
 | `biometric` | `'kit'` | `'kit'`: Settings shows the Biometric unlock switch (it confirms with a fingerprint and stores the choice; your sign-in flow acts on it). `'host'`: your app already has its own lock, so the kit hides its switch and never prompts. See [Fingerprint unlock](#fingerprint-unlock) |
 | `apk.autoDownload` | `'wifi'` | `'wifi'`, `'always'` or `'never'`. The user's Settings choice wins |
+| `apk.force` | `true` | `true`: a downloaded APK blocks the app with a dialog that cannot be closed until it is installed. `false`: the dialog has a **Later** button |
 | `monitor` | see below | Crash and API monitoring options |
 | `theme`, `ui` | built-in look | Colours and fonts, or swap `Screen`, `Card`, `Button`, `useToast`, `showDialog`, `useOnline` |
 | `serverApps` | Frappe and ERPNext | `[key, label][]` site apps to list on Settings |
@@ -601,6 +605,7 @@ npx upande-mobile-kit init --yes --site https://your.site --dev-site http://loca
 
 - This package is public. Nothing secret belongs in it or in `src/mobile-kit.ts`.
 - Reports go only to your own Frappe site. Both the phone and the server redact secrets before they are stored. See [Privacy](#crash-and-api-monitoring).
+- The Wi-Fi name (only with netinfo and the location permission), signal and speed are stored with the device's health. Leave `@react-native-community/netinfo` out if you do not want them.
 - The Android ID is stored only as a hash. The server also records the IP address it sees. It never records location.
 - Only System Managers can read the device register and the web portal.
 - The kit's own server calls to GitHub are unauthenticated. GitHub allows 60 per hour per IP address. Each phone checks once a day.

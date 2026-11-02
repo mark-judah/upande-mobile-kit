@@ -5,6 +5,8 @@ import { Ionicons } from '@expo/vector-icons';
 import { DEFAULT_DEVICES_ROUTE, DEFAULT_SETTINGS_ROUTE, getConfig, KitKeys } from '../config';
 import { openKitSettings } from '../open-settings';
 import { useInsets } from './insets';
+import { ProgressRing } from './ProgressRing';
+import { useUpdateActivity } from '../updates/useUpdateActivity';
 import {
   clampBottom, decodePlacement, encodePlacement, FAB_SIZE, fabVisible, isTap, leftFor, placementAfterDrag, resolveFab,
   topFor, type FabPlacement,
@@ -29,6 +31,7 @@ function FabOverlay() {
   // Only the host's own auth can say 'signed out'; on the kit's stand-in the button always shows.
   const auth = cfg.useAuth();
   const signedOut = !cfg.standIns.useAuth && !auth.user;
+  const activity = useUpdateActivity();
   const win = useWindowDimensions();
   const insets = useInsets();
   const [keyboardOpen, setKeyboardOpen] = useState(false);
@@ -126,13 +129,27 @@ function FabOverlay() {
         {...responder.panHandlers}
         accessible
         accessibilityRole="button"
-        accessibilityLabel="Open settings"
+        accessibilityLabel={activityLabel(activity)}
         style={[styles.fab, { backgroundColor: cfg.theme.primary, transform: pos.getTranslateTransform() }]}
       >
         <Ionicons name="settings-outline" size={22} color={cfg.theme.textOnPrimary} />
+        {activity ? (
+          <View pointerEvents="none" style={styles.ringHost}>
+            <ProgressRing size={RING_SIZE} fraction={activity.fraction} color={cfg.theme.primary} trackColor={cfg.theme.border} />
+          </View>
+        ) : null}
       </Animated.View>
     </View>
   );
+}
+
+const RING_GAP = 5;
+const RING_SIZE = FAB_SIZE + RING_GAP * 2 + 8;
+
+function activityLabel(a: ReturnType<typeof useUpdateActivity>): string {
+  if (!a) return 'Open settings';
+  const what = a.kind === 'apk' ? 'Downloading app update' : 'Downloading update';
+  return a.fraction == null ? `${what}. Open settings` : `${what}, ${Math.round(a.fraction * 100)} percent. Open settings`;
 }
 
 /** A plain button that opens the Settings page, for hosts that prefer their own entry (set `fab: false`). */
@@ -169,5 +186,7 @@ const styles = StyleSheet.create({
     shadowRadius: 4,
     shadowOffset: { width: 0, height: 2 },
   },
+  // Centred on the button; dots sit just outside its edge.
+  ringHost: { position: 'absolute', left: (FAB_SIZE - RING_SIZE) / 2, top: (FAB_SIZE - RING_SIZE) / 2, width: RING_SIZE, height: RING_SIZE },
   button: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 8, paddingHorizontal: 12 },
 });

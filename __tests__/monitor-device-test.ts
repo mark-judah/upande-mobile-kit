@@ -2,7 +2,7 @@ import { setup } from './helpers';
 
 jest.mock('expo', () => ({
   ...jest.requireActual('expo'),
-  requireOptionalNativeModule: (n: string) => (['ExpoDevice', 'ExpoBattery', 'ExpoNetwork'].includes(n) ? {} : null),
+  requireOptionalNativeModule: (n: string) => (['ExpoDevice', 'ExpoBattery', 'ExpoNetwork', 'RNCNetInfo'].includes(n) ? {} : null),
 }));
 jest.mock('expo-device', () => ({ modelName: 'Pixel 7', brand: 'Google', osVersion: '14', osBuildId: 'AP1A', deviceName: "Ann's phone", isDevice: true, totalMemory: 8e9 }), { virtual: true });
 const mockLevel = jest.fn(async () => 0.42);
@@ -12,14 +12,32 @@ jest.mock('expo-battery', () => ({
 jest.mock('expo-network', () => ({
   getNetworkStateAsync: async () => ({ type: 'WIFI', isConnected: true, isInternetReachable: true }), NetworkStateType: { WIFI: 'WIFI' },
 }), { virtual: true });
+jest.mock('@react-native-community/netinfo', () => ({
+  fetch: async () => ({ details: { ssid: 'KarenFarm-5G', strength: 71, linkSpeed: 433, frequency: 5180, cellularGeneration: null } }),
+}), { virtual: true });
 jest.mock('expo-file-system', () => ({ Paths: { availableDiskSpace: 5e9, totalDiskSpace: 6.4e10 } }));
 
+import { recordApiTiming, resetNetStats } from '../src/monitor/net-stats';
 import { collectDeviceFacts, peekDeviceFacts, resetDeviceCache } from '../src/monitor/device';
 
 beforeEach(() => {
   setup();
   resetDeviceCache();
+  resetNetStats();
   mockLevel.mockClear();
+});
+
+describe('network facts', () => {
+  it('adds Wi-Fi name, signal, link speed and frequency when netinfo is in the build', async () => {
+    const f = await collectDeviceFacts();
+    expect(f).toMatchObject({ wifi_ssid: 'KarenFarm-5G', wifi_signal_pct: 71, wifi_link_mbps: 433, wifi_frequency_mhz: 5180 });
+    expect(f.cellular_generation).toBeUndefined();
+  });
+  it('adds how long this app’s own calls are taking', async () => {
+    [100, 200, 300].forEach((ms) => recordApiTiming(ms, true));
+    const f = await collectDeviceFacts();
+    expect(f).toMatchObject({ api_calls: 3, api_avg_ms: 200, api_p95_ms: 300, api_error_pct: 0 });
+  });
 });
 
 describe('device facts', () => {

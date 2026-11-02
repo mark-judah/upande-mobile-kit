@@ -132,12 +132,16 @@ describe('biometric ownership', () => {
   it('the kit owns the lock by default and shows its switch', () => {
     expect(renderToString(<SettingsScreen />)).toContain('Biometric unlock');
   });
-  it("biometric: 'host' hides the kit's switch and stops listing biometric as missing", () => {
+  it("biometric: 'host' with the app's own useAuth still shows the switch (it sets the app's own flag)", () => {
     setup({ biometric: 'host' });
+    const html = renderToString(<SettingsScreen />);
+    expect(html).toContain('Biometric unlock');
+  });
+  it("biometric: 'host' without a wired useAuth hides the switch (no real setting behind it)", () => {
+    setup({ biometric: 'host', useAuth: undefined, site: 'https://s.example.com' });
     const html = renderToString(<SettingsScreen />);
     expect(html).not.toContain('Biometric unlock');
     expect(html).not.toContain('>Security<');
-    expect(html).not.toContain('Biometric unavailable');
   });
 });
 

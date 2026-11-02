@@ -39,6 +39,10 @@ export function SettingsScreen({
   useEffect(() => registerKitScreen('settings'), []);
   // `biometric: 'host'`: the app owns the lock; the kit shows no switch and never prompts.
   const hostOwnsLock = cfg.biometric === 'host';
+  // The switch shows unless the app owns the lock AND has not wired its own `useAuth`: then there is no real flag for
+  // the switch to set. With `useAuth` wired (even with `biometric: 'host'`) it flips the app's own setting, so the
+  // person finds the fingerprint option here whoever enforces the lock.
+  const showBiometricRow = !hostOwnsLock || !cfg.standIns.useAuth;
   const [missing] = useState(() => missingModules(hostOwnsLock ? ['expo-local-authentication'] : []));
   const gaps = __DEV__ ? getConfigGaps() : [];
   const [moduleReady] = useState(() => Biometric.isModuleAvailable());
@@ -52,9 +56,9 @@ export function SettingsScreen({
   const latest = newestRelease && compareVersions(newestRelease, APP_VERSION) > 0 ? newestRelease : APP_VERSION;
 
   useEffect(() => {
-    if (!hostOwnsLock) Biometric.isAvailable().then(setHardwareReady);
+    Biometric.isAvailable().then(setHardwareReady);
     getServerVersions().then(setSiteApps);
-  }, [hostOwnsLock]);
+  }, []);
 
   // Crash reports: the person's own switch. Hidden when the app turned monitoring off or hid the row.
   const monitorCfg = cfg.monitor ?? {};
@@ -162,7 +166,7 @@ export function SettingsScreen({
         </Card>
       ) : null}
 
-      {hostOwnsLock ? null : (
+      {showBiometricRow ? (
         <Card title="Security">
           <View style={s.row}>
             <View style={{ flex: 1 }}>
@@ -172,13 +176,15 @@ export function SettingsScreen({
                   ? 'Install latest build to enable'
                   : !hardwareReady
                     ? 'Enroll fingerprint/face in device settings'
-                    : 'Skip the password with fingerprint or face'}
+                    : hostOwnsLock
+                      ? 'Lock the app with fingerprint or face when you come back to it'
+                      : 'Skip the password with fingerprint or face'}
               </Text>
             </View>
             <Toggle value={auth.biometricEnabled} onChange={onToggleBiometric} styles={s} />
           </View>
         </Card>
-      )}
+      ) : null}
 
       {showMonitorRow ? (
         <Card title="Diagnostics">

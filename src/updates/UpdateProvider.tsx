@@ -31,6 +31,7 @@ import { ui } from '../ui/primitives';
 import { currentNetwork } from './network';
 import { runAutoDownload, shouldPromptInstall } from './auto-download';
 import { getAutoDownloadMode } from './preferences';
+import { ForceUpdateGate } from './ForceUpdateGate';
 
 /**
  * App-wide state for the APK channel: is a newer native build on GitHub, and
@@ -101,6 +102,7 @@ export function UpdateProvider({ children }: { children: ReactNode }) {
   const [downloaded, setDownloaded] = useState<string | null>(null);
   const [installError, setInstallError] = useState<UpdateState['installError']>(null);
 
+  const [launching, setLaunching] = useState(false);
   const busy = useRef(false);
   /** The finished download, read synchronously by `install`. */
   const ready = useRef<{ version: string; uri: string } | null>(null);
@@ -257,6 +259,17 @@ export function UpdateProvider({ children }: { children: ReactNode }) {
   const prompted = useRef<string | null>(null);
   /** The person pressed the Settings button: no prompt on top of their own action. */
   const manual = useRef(false);
+  const forced = getConfig().apk?.force !== false;
+  const gateApk = check?.available ? check.apk : null;
+  const gateOpen = forced && !!gateApk && downloaded === gateApk.version && canInstallInApp();
+  const onGateInstall = useCallback(async () => {
+    setLaunching(true);
+    try {
+      await install(check);
+    } finally {
+      setLaunching(false);
+    }
+  }, [install, check]);
 
   useEffect(() => {
     const apk = check?.available ? check.apk : null;
@@ -274,6 +287,8 @@ export function UpdateProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     const apk = check?.available ? check.apk : null;
+    // With `apk.force` (the default) the blocking gate below replaces this optional prompt.
+    if (forced) return;
     if (!apk || downloaded !== apk.version || manual.current || prompted.current === apk.version || !canInstallInApp()) return;
     prompted.current = apk.version;
     (async () => {
@@ -306,14 +321,21 @@ export function UpdateProvider({ children }: { children: ReactNode }) {
         { name: 'checkmark-circle-outline', tone: 'success' },
       );
     })();
-  }, [check, downloaded, install]);
+  }, [check, downloaded, install, forced]);
 
   const value = useMemo(
     () => ({ check, checking, checkError, downloading, progress, downloaded, installError, refresh, install }),
     [check, checking, checkError, downloading, progress, downloaded, installError, refresh, install],
   );
 
-  return <UpdateContext.Provider value={value}>{children}</UpdateContext.Provider>;
+  return (
+    <UpdateContext.Provider value={value}>
+      {children}
+      {gateOpen ? (
+        <ForceUpdateGate version={gateApk?.version ?? ''} busy={launching} error={installError} onInstall={() => void onGateInstall()} />
+      ) : null}
+    </UpdateContext.Provider>
+  );
 }
 
 /** Safe outside the provider: returns a quiet default. */

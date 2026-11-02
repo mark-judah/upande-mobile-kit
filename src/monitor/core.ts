@@ -3,6 +3,7 @@ import { getConfig, KitKeys } from '../config';
 import { getInstallId, waitForLaunchRegistration } from '../devices/install-register';
 import { RingBuffer } from './buffer';
 import { appBuildFacts, collectDeviceFacts, peekDeviceFacts } from './device';
+import { PING_PATH, recordApiTiming } from './net-stats';
 import {
   bodyToText, byteLength, cutBytes, headersToObject, makeKeyMatcher, redactHeaders, redactUrl,
 } from './redact';
@@ -150,7 +151,9 @@ function ignored(url: string): boolean {
  */
 export function captureApiCall(c: ApiCapture): void {
   if (!state.enabled || ignored(c.url)) return;
+  if (c.url.includes(PING_PATH)) return; // the latency probe is not one of the app's own calls
   const ok = c.status !== null && c.status < 400 && !c.error;
+  recordApiTiming(c.durationMs, ok);
   const ts = Date.now();
   // Breadcrumb for every call (a few fields; formatted at flush).
   state.crumbs.push({ ts, type: 'api', message: '', data: { method: c.method, url: c.url, status: c.status, ms: c.durationMs } });
