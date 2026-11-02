@@ -1,14 +1,61 @@
 # @upande/mobile-kit
 
-A Settings page and the update plumbing behind it, for Expo apps.
-
-- **Updates that reach phones by themselves.** JavaScript fixes ship over the air (OTA). New native builds ship as an APK that downloads in the background and asks the user to tap Install.
-- **A Settings page** with versions, a "Check for updates" button, a fingerprint unlock switch and a floating button that opens it from any screen.
-- **A Devices page** in the app. System Managers see which phones run which build, who used them, and which are behind.
-- **Crash and API monitoring** on a web portal in your own Frappe site (`/mobile-monitor`): errors, failed requests with headers, payload and response, device details and the signed-in user.
-- **One release workflow.** Merge to your release branch and GitHub Actions publishes the OTA bundle or builds the APK. No Expo (EAS) account.
+Updates, device management, monitoring and support for Expo apps, backed by a Frappe site. Install one package and your app gets a Settings page with over-the-air and APK updates, fingerprint sign-in, a device register, crash and API monitoring, problem reports and chat with your team.
 
 The package is installed from GitHub, not npm. Its backend is the Frappe app [`upande_mobile`](https://github.com/mark-judah/upande-mobile).
+
+**Jump to:** [Features](#features) · [Quick start](#quick-start) · [Configuration](#configuration) · [CLI reference](#cli-reference) · [Troubleshooting](#troubleshooting)
+
+## Features
+
+Every feature name links to its section. "Needs" lists native modules beyond the ones `init` installs for you; see [Native modules](#native-modules).
+
+**Updates**
+
+| Feature | What it does | Needs |
+|---|---|---|
+| [OTA updates](#ota-updates) | JavaScript fixes reach phones when the app opens | none |
+| [APK updates](#apk-updates) | New native builds download in the background, with one tap to install | none |
+| [Forced install](#forced-install) | A downloaded APK must be installed before the app can be used again | none |
+| [Download progress ring](#download-progress-ring) | A ring around the floating button shows that something is downloading, and how far | none |
+| [Release workflow](#releasing) | Push to your release branch and GitHub Actions publishes the OTA bundle or builds the APK. No Expo (EAS) account | a GitHub repository |
+
+**Settings and sign-in**
+
+| Feature | What it does | Needs |
+|---|---|---|
+| [Settings page](#the-settings-page) | One page of versions, update controls, switches and sign-out | none |
+| [Floating button](#the-floating-button) | Opens Settings from any screen of any app | none |
+| [Version information](#version-information) | App, runtime, running bundle, the kit's own version and the site's apps, including the backend | none |
+| [Fingerprint unlock](#fingerprint-unlock) | A fingerprint or face switch, or your app's own lock | `expo-local-authentication` |
+| [Fingerprint sign-in vault](#fingerprint-sign-in-vault) | Sign in with a fingerprint instead of typing the password | `expo-secure-store` |
+
+**Fleet and monitoring**
+
+| Feature | What it does | Needs |
+|---|---|---|
+| [Devices page](#the-devices-page) | Which phones run which build, who used them, and which are behind | none |
+| [Crash and API monitoring](#crash-and-api-monitoring) | Errors and failed requests with headers, payload and response, plus device and user details | none |
+| [Network and performance](#network-and-performance) | Wi-Fi name and speed, latency to your server and how long the app's own calls take | `@react-native-community/netinfo` for the Wi-Fi details |
+| [Web portal](#the-web-portal) | Issues, devices, per-app pages and support, on your own Frappe site | none |
+
+**Help and support**
+
+| Feature | What it does | Needs |
+|---|---|---|
+| [Report a problem](#report-a-problem) | A screenshot, the device, the last requests and the last crash, filed on your site | `react-native-view-shot` for the screenshot |
+| [Chat with support](#chat-with-support) | A conversation with your team inside the app | none |
+| [What's new](#whats-new) | The release notes, shown once after an update | none |
+| [Last crash capture](#last-crash-capture) | The crash that made someone write in is attached to their report | none |
+| [Connection banner](#connection-banner) | A warning when the phone is offline or the server is slow, with a Wi-Fi settings shortcut | none |
+
+**Tooling**
+
+| Feature | What it does |
+|---|---|
+| [Command line](#cli-reference) | `init` (setup wizard), `fix`, `verify`, `doctor`, `version`, `publish-ota` and `release` (tag a kit release) |
+
+Most features are on by default. Each one that is not is turned on with a single setting; see [Configuration](#configuration).
 
 ## How the pieces fit
 
@@ -27,19 +74,6 @@ The package is installed from GitHub, not npm. Its backend is the Frappe app [`u
   GitHub Actions (release workflow) -------------+---- also builds the APK on a new runtime
 ```
 
-## The web portal
-
-Reports from your apps land on a web portal that the backend serves: **`https://your.site/mobile-monitor`**.
-
-- **How to open it:** sign in to your Frappe site as a System Manager, then open that address in a browser. If you are signed out you are sent to the login page and back. Other users get a permission error. The portal has no menu entry in Frappe, so bookmark it.
-- **What you get:**
-  - an overview: events per day, top issues, app versions, device models and OS versions in use, and fleet health;
-  - every crash, error and failed API request grouped into issues, each with the stack, the request and response (headers and payload, secrets removed), breadcrumbs, the device (OS, model, battery, storage, network, app and runtime versions) and the signed-in user, with Resolve and Ignore;
-  - a Devices view of every registered phone, with filters for low battery, low storage, offline, old OS and old app, and each device's timeline.
-- **What it needs:** the backend installed with `bench build --app upande_mobile` run once, the app registered on that site, and the app signed in so it can send reports. See [Crash and API monitoring](#crash-and-api-monitoring) for what the app captures, and the [backend README](https://github.com/mark-judah/upande-mobile#the-web-portal) for the portal itself.
-
-The portal is separate from the Settings page inside your app: the portal is for you, the Settings page is for your users.
-
 ## Requirements
 
 | What | Needed |
@@ -50,6 +84,8 @@ The portal is separate from the Settings page inside your app: the portal is for
 | Frappe site | Frappe 16 with the `upande_mobile` app installed |
 | GitHub | A repository for the app. Releases must be readable without logging in (see [GitHub setup](#github-setup)) |
 | Android | APK updates are Android only. The release workflow builds and publishes for Android |
+
+Some features need an extra native module, listed in [Native modules](#native-modules). Each is optional and switches on only its own feature.
 
 ## Quick start
 
@@ -71,7 +107,7 @@ The wizard in step 2 can do this for a bench on your own machine. Production is 
 
 ```bash
 cd my-expo-app
-npm install github:mark-judah/upande-mobile-kit#v0.8.0
+npm install github:mark-judah/upande-mobile-kit#v0.11.0   # or the newest tag on the Releases page
 npx upande-mobile-kit init
 ```
 
@@ -133,6 +169,20 @@ The push starts the release workflow, which creates the `gh-pages` branch. When 
 
 No phone has the kit yet, so the first release must be a native build. In your repo: **Actions > Release > Run workflow**, tick **build_apk** (or set `bump` to `minor`), and run it. Download the APK from the new GitHub Release, install it once, and from then on every update reaches the phone by itself. Details in [Releasing](#releasing).
 
+## Local and production sites
+
+Dev builds (`__DEV__`: Metro, dev clients) use the dev site. Release builds and OTA use the production site. `init` writes both:
+
+```ts
+site: { production: 'https://your.site', development: 'http://localhost:8000' },
+```
+
+Without a development site every build uses production. Pin one with `environment: 'production'` or `'development'`.
+
+- `localhost` works in the iOS simulator. The Android emulator needs `http://10.0.2.2:<port>`. A real phone needs your computer's LAN address, and a bench listening on it.
+- Names ending in `.local` do not resolve from phones or the Android emulator. Use the LAN IP and make the bench answer on it (`bench use <site>` sets the default site).
+- A plain `http://` site needs Android cleartext traffic and an iOS App Transport Security exception. The kit's config plugin sets both for the hosts listed under `expo.extra.mobileKit.sites`, never the global "allow all HTTP" flag, and warns at prebuild. An `http://` production site gets a loud warning. Opt out with `["@upande/mobile-kit", { "cleartext": false }]`. This is native configuration, so it needs a new native build.
+
 ## GitHub setup
 
 Do this once per app repository.
@@ -162,6 +212,70 @@ Do this once per app repository.
 
    Keep `release.keystore` and its passwords somewhere safe. **Phones cannot update an app over an APK signed with a different key.** If you switch from debug to a real key later, every phone has to uninstall first.
 6. **Branch protection.** If your release branch requires pull requests, allow `github-actions[bot]` to push to it. The workflow pushes a `chore(release): <version>` commit directly.
+
+## The Settings page
+
+Every user of your app gets this page at `/mobile-kit/settings`, once `<MobileKitProvider>` is mounted. Add your own rows without forking: `<SettingsScreen extraSections={...} profileExtra={...} />`.
+
+### What the page shows
+
+From top to bottom:
+
+| Card | What it has |
+|---|---|
+| Profile | The user's initial, name, email and site, taken from your `useAuth` |
+| Dev notice | Development builds only: which of `useAuth`, `api` and `storage` are still on the kit's stand-ins |
+| Security | The fingerprint switch (see [Fingerprint unlock](#fingerprint-unlock) and the [vault](#fingerprint-sign-in-vault)). With `biometric: 'host'` it still shows whenever your own `useAuth` is wired: it sets your `biometricEnabled` and your app does the locking |
+| Help | **Report a problem**, **Chat with support** and **What's new** (see [Help and support](#help-and-support)) |
+| Diagnostics | The **Send crash reports** switch, and a **Send test error** button in development. Hidden with `monitor.showToggle: false` |
+| App & Server | The [version information](#version-information), the **Check for updates** button and the **Download updates** choice (see [Updates on the phone](#updates-on-the-phone)) |
+| Not available in this build | Only when an optional native module is missing, for example "Battery info unavailable: rebuild required" |
+| Your own rows | Anything you pass as `extraSections` or `profileExtra` |
+| Devices | A link to the [Devices page](#the-devices-page). System Managers only |
+| Session | **Sign out** and **Forget this device**, shown when your `useAuth` provides `logout` and `forgetDevice` |
+
+### The floating button
+
+A small translucent button opens Settings from any screen, whatever your navigation looks like. It can be dragged to either screen edge and remembers where it was left. It hides on the kit's own pages and while the keyboard is open, and, when your own `useAuth` is wired, before anyone has signed in (your sign-in gate would send the page straight back to login). It shows a [progress ring](#download-progress-ring) while an update downloads.
+
+Set `fab: false` to remove it and open the page yourself with `openKitSettings()`, `<KitSettingsButton />` or `router.push('/mobile-kit/settings')`. Options: `fab: 'dev'` (development builds only) or `fab: { initialSide: 'left', bottom: 96, whenSignedOut: true }`.
+
+### Version information
+
+The **App & Server** card lists:
+
+| Row | What it is |
+|---|---|
+| App, Site | The app name and the site it talks to |
+| Frappe, ERPNext | Versions of the apps on the site (change the list with `serverApps`) |
+| **Upande Mobile Kit (server)** | The `upande_mobile` backend's version, read from the same call as the rows above. "not installed" when the site lacks it. Always listed, even with your own `serverApps` |
+| **Upande Mobile Kit** | The version of this npm package the app was built with |
+| Installed, Latest | The running app version and the newest one published |
+| Code | Which JavaScript is running: the embedded build, or the OTA bundle id, date and channel |
+
+Each device also reports its kit version, so the [web portal](#the-web-portal) shows which phones are on an old kit.
+
+## Updates on the phone
+
+### OTA updates
+
+On open, the app checks for an over-the-air bundle. If one downloads in the first 20 seconds, the app restarts into it. A later download waits for the next opening, so the app never restarts under someone mid-task. Change the window with `otaOpenWindowMs`. OTA bundles carry JavaScript only: native changes need an [APK](#apk-updates). How bundles are published is in [Releasing](#releasing).
+
+### APK updates
+
+- **Check for updates.** The one button in App & Server. It checks GitHub Releases for a new APK first, because a new APK carries a new runtime and supersedes any OTA bundle. If the APK is current it asks for an OTA bundle. When an APK is available the same button reads **Download v1.3.0 (size)**, then **Install v1.3.0**.
+- **Download updates.** A choice under that button: **Wi-Fi only** (the default), **Any network** or **Off**. The user's choice wins over `apk.autoDownload`. Once a day the app checks GitHub Releases; on Wi-Fi it downloads a newer APK in the background. A finished download is kept, so a cancelled installer can be reopened without downloading again.
+- **Android cannot install an APK silently.** The user always confirms in Android's installer, and the first time Android also asks to allow installs from this app.
+
+### Forced install
+
+Once a newer APK is on the phone, an **Update required** dialog covers the whole app. It has one button, **Install now**, and the Android back button does nothing. If the person cancels Android's installer they land on the dialog again. If Android has not yet allowed installs from this app, the dialog offers a shortcut to that setting.
+
+On by default. Set `apk: { force: false }` for a softer prompt with an **Install now / Later** choice that asks again next time.
+
+### Download progress ring
+
+While an APK or an OTA bundle downloads, a ring of dots appears around the [floating button](#the-floating-button). For an APK the dots light up clockwise with the real progress. An OTA bundle has no known size, so a short arc travels around the ring instead. The Settings page shows the same progress as text.
 
 ## Releasing
 
@@ -322,7 +436,7 @@ With the GitHub CLI: `gh workflow run release.yml --ref main -f build_apk=true`.
 
 ### Keeping the workflow up to date
 
-`init` writes `.github/workflows/release.yml` pinned to the kit version that wrote it, for example `...release.yml@v0.8.0`. A floating tag would never carry workflow fixes to apps that already have the file, so the pin is exact. After you update the kit, bring the workflow up to date:
+`init` writes `.github/workflows/release.yml` pinned to the kit version that wrote it, for example `...release.yml@v0.11.0`. A floating tag would never carry workflow fixes to apps that already have the file, so the pin is exact. After you update the kit, bring the workflow up to date:
 
 ```bash
 npx upande-mobile-kit init --update-workflow
@@ -344,35 +458,58 @@ It rewrites only that file, keeps your app name, APK name and branch, saves the 
 - There is no rollback step. To undo a bad OTA, revert the change on the release branch and merge: the next patch release publishes the old code as a new version.
 - The workflow regenerates `android/` with `expo prebuild --clean` on every APK build. Hand edits in a committed `android/` folder are not used; put native changes in config plugins.
 
-## The Settings page
+## Fingerprint unlock
 
-Every user of your app gets this page at `/mobile-kit/settings`. A floating button opens it from any screen once `<MobileKitProvider>` is mounted. Drag the button to either screen edge; it remembers where you left it, and it hides on the kit's own pages and while the keyboard is open. Set `fab: false` to remove it and open the page yourself with `openKitSettings()`, `<KitSettingsButton />` or `router.push('/mobile-kit/settings')`.
+Three modes, set with `biometric`:
 
-From top to bottom, the page shows:
-
-| Card | What it has |
+| Mode | Who does what |
 |---|---|
-| Profile | The user's initial, name, email and site, taken from your `useAuth` |
-| Dev notice | Development builds only: which of `useAuth`, `api` and `storage` are still on the kit's stand-ins |
-| Security | The **Biometric unlock** switch (see [Fingerprint unlock](#fingerprint-unlock)). Shown with `biometric: 'host'` too whenever your own `useAuth` is wired: it sets your `biometricEnabled` and your app does the locking |
-| Diagnostics | The **Send crash reports** switch, and a **Send test error** button in development. Hidden with `monitor.showToggle: false` |
-| App & Server | The app name, the site, the versions of the apps on the site (Frappe and ERPNext by default, plus **Upande Mobile Kit (server)**, the `upande_mobile` backend, or "not installed" when the site lacks it), **Upande Mobile Kit**, the version of this npm package the app was built with, **Installed** version, **Latest** version, which bundle is running (embedded build, or the OTA bundle id, date and channel), the **Check for updates** button and the **Download updates** choice (see [Updates on the phone](#updates-on-the-phone)) |
-| Not available in this build | Only when an optional native module is missing, for example "Battery info unavailable: rebuild required" |
-| Your own rows | Anything you pass as `extraSections` or `profileExtra` |
-| Devices | A link to the Devices page. System Managers only |
-| Session | **Sign out** and **Forget this device**, shown when your `useAuth` provides `logout` and `forgetDevice` |
+| `'kit'` (default) | The Settings switch stores the user's choice; your sign-in flow acts on it |
+| `'host'` | Your app already has its own lock and enforces it |
+| `'vault'` | The kit keeps the sign-in behind the fingerprint: see the [vault](#fingerprint-sign-in-vault) |
 
-## Help: report a problem, chat and what's new
+Needs `expo-local-authentication` (not needed with `biometric: 'host'`).
 
-The **Help** card in Settings has three rows. Each can be turned off (`support: false`, `support: { chat: false }`, `whatsNew: false`).
+The **Biometric unlock** switch lives in the Security card of the Settings page. It is the user's choice to use a fingerprint (or face) instead of a password to sign back in.
 
-- **Report a problem.** The person writes a subject and what happened. The kit adds a **screenshot of the screen they were on** (taken when they tapped the floating button, before Settings covered it), the device and connection, the **last 15 requests** (addresses and results only, secrets removed), and **the last crash**. A "What will be sent" list shows all of it first. The report lands in the web portal under **Support** as a *Mobile Report*, with the screenshot, diagnostics and a status (Open, In Progress, Resolved). The screenshot needs `react-native-view-shot` in the build; without it the report is sent without one.
-- **Chat with support.** A simple conversation with your team. The person types, staff reply from the portal's Support page, and the reply shows in the app within a few seconds while the chat is open. A badge on the row shows unread replies.
-- **What's new.** After the app updates, a sheet shows the new version's release notes once (the same notes the release workflow writes to the GitHub Release: Features, Fixes and so on, without commit hashes). It never shows on a first install, and shows nothing for a version without notes. The row in Settings reopens it any time.
+- **Turning it on** asks the phone to confirm with a fingerprint or face ("Confirm biometric unlock"; the phone's PIN is not accepted here). If the build has no `expo-local-authentication`, it says to install the latest build. If no fingerprint or face is enrolled in the phone's settings, it says to enrol one first. On success the choice is saved.
+- **Turning it off** needs no prompt.
+- **Where the choice is saved:** through your `useAuth` (`biometricEnabled` and `setBiometricEnabled`), so it lands in your own auth store. With no `useAuth`, the kit keeps it in its own storage.
+- **What the kit does not do:** it does not add a lock screen, and it does not lock your app when it opens. It asks for the fingerprint when the user turns the switch on and stores the choice. Your sign-in flow decides what to do with it: read `biometricEnabled` from your auth state and prompt with the kit's helper.
 
-**The last crash.** Unhandled errors and render errors are also saved on the phone, so a report filed after a black screen or a restart still carries what broke. It is sent only inside a report the person chooses to send, then forgotten.
+  ```ts
+  import { Biometric } from '@upande/mobile-kit';
 
-**Connection banner.** A banner appears when the phone has been offline for 25 seconds, or when the last round trip to your server took 3 seconds or more, with a **Wi-Fi settings** shortcut (an app cannot switch Wi-Fi itself on modern Android). Tune with `connectionBanner: { staleAfterSec: 25, slowMs: 3000 }` or turn it off with `connectionBanner: false`.
+  if (biometricEnabled && (await Biometric.isAvailable())) {
+    const { success } = await Biometric.authenticate({ promptMessage: 'Unlock' });
+    // success: let the user in; otherwise fall back to the password
+  }
+  ```
+
+  The helper is safe on a build without the native module: it reports "not available" instead of crashing.
+- **If your app already has its own lock**, set `biometric: 'host'`. The kit then never prompts for or enforces a lock itself, so there is one lock. The Settings switch stays when your `useAuth` provides `biometricEnabled` and `setBiometricEnabled`: it flips your own setting (after a fingerprint check when turning it on), and your app does the locking. Without a wired `useAuth` the switch is hidden, because there would be no real setting behind it. `init` detects an existing use of `expo-local-authentication` and sets `biometric: 'host'` for you.
+- **Sign out and Forget this device** are in the Session card. Sign out asks "You can sign back in with biometrics or your password." Forget this device asks "Clears your session and disables biometric unlock." Both call the functions your `useAuth` provides and then go to `loginRoute` (default `/login`).
+
+### Fingerprint sign-in vault
+
+Set `biometric: 'vault'`. The vault stores the person's sign-in in the phone's secure storage, behind their fingerprint or face, so the login screen can offer **Sign in with fingerprint**. Needs `expo-secure-store` and `expo-local-authentication` in the build (`npx expo install expo-secure-store`, then a new native build); without them the Settings switch says so and nothing is stored.
+
+1. **Turn it on.** Settings shows **Fingerprint sign-in**. Turning it on asks for the password once (in the kit's own sheet, so it also works on Android), then the phone asks for the fingerprint to store it. Turning it off wipes it.
+2. **Offer it after login** (once per device) from your login screen:
+
+   ```tsx
+   import { useBiometricVault, BiometricSignIn } from '@upande/mobile-kit';
+
+   const vault = useBiometricVault();
+   // after a successful password login:
+   await vault.offer({ server: siteUrl, user: email, password });
+
+   // on the login screen: renders only when a sign-in is stored
+   <BiometricSignIn onCredentials={({ server, user, password }) => signIn(server, user, password)} />
+   ```
+3. **How it signs in.** The button asks for the fingerprint, then hands the stored `{ server, user, password }` to your `onCredentials`, which runs your normal login. If the password was changed on the server, the login fails and the message shows under the button; the person signs in with the new password and turns the switch on again.
+
+The password never leaves the phone and is never sent to your site except by your own login call. The kit keeps no copy outside secure storage; a plain marker (not the password) tells the screen whether one exists, so checking never prompts.
 
 ## The Devices page
 
@@ -398,79 +535,11 @@ The status and the "Update to" text come from the server. Nothing is worked out 
 
 The page shows versions and who used each phone. Battery, storage, network and the per-device crash history are in the [web portal](#the-web-portal), under Devices.
 
-## Fingerprint unlock
-
-There are three ways to use it, set with `biometric`: `'kit'` (default, a flag only), `'host'` (your app owns the lock) and `'vault'` (the kit keeps the sign-in behind the fingerprint). The next section covers the vault.
-
-The **Biometric unlock** switch lives in the Security card of the Settings page. It is the user's choice to use a fingerprint (or face) instead of a password to sign back in.
-
-- **Turning it on** asks the phone to confirm with a fingerprint or face ("Confirm biometric unlock"; the phone's PIN is not accepted here). If the build has no `expo-local-authentication`, it says to install the latest build. If no fingerprint or face is enrolled in the phone's settings, it says to enrol one first. On success the choice is saved.
-- **Turning it off** needs no prompt.
-- **Where the choice is saved:** through your `useAuth` (`biometricEnabled` and `setBiometricEnabled`), so it lands in your own auth store. With no `useAuth`, the kit keeps it in its own storage.
-- **What the kit does not do:** it does not add a lock screen, and it does not lock your app when it opens. It asks for the fingerprint when the user turns the switch on and stores the choice. Your sign-in flow decides what to do with it: read `biometricEnabled` from your auth state and prompt with the kit's helper.
-
-  ```ts
-  import { Biometric } from '@upande/mobile-kit';
-
-  if (biometricEnabled && (await Biometric.isAvailable())) {
-    const { success } = await Biometric.authenticate({ promptMessage: 'Unlock' });
-    // success: let the user in; otherwise fall back to the password
-  }
-  ```
-
-  The helper is safe on a build without the native module: it reports "not available" instead of crashing.
-- **If your app already has its own lock**, set `biometric: 'host'`. The kit then never prompts for or enforces a lock itself, so there is one lock. The Settings switch stays when your `useAuth` provides `biometricEnabled` and `setBiometricEnabled`: it flips your own setting (after a fingerprint check when turning it on), and your app does the locking. Without a wired `useAuth` the switch is hidden, because there would be no real setting behind it. `init` detects an existing use of `expo-local-authentication` and sets `biometric: 'host'` for you.
-- **Sign out and Forget this device** are in the Session card. Sign out asks "You can sign back in with biometrics or your password." Forget this device asks "Clears your session and disables biometric unlock." Both call the functions your `useAuth` provides and then go to `loginRoute` (default `/login`).
-
-### Fingerprint sign-in vault (`biometric: 'vault'`)
-
-The vault stores the person's sign-in in the phone's secure storage, behind their fingerprint or face, so the login screen can offer **Sign in with fingerprint**. Needs `expo-secure-store` and `expo-local-authentication` in the build (`npx expo install expo-secure-store`, then a new native build); without them the Settings switch says so and nothing is stored.
-
-1. **Turn it on.** Settings shows **Fingerprint sign-in**. Turning it on asks for the password once (in the kit's own sheet, so it also works on Android), then the phone asks for the fingerprint to store it. Turning it off wipes it.
-2. **Offer it after login** (once per device) from your login screen:
-
-   ```tsx
-   import { useBiometricVault, BiometricSignIn } from '@upande/mobile-kit';
-
-   const vault = useBiometricVault();
-   // after a successful password login:
-   await vault.offer({ server: siteUrl, user: email, password });
-
-   // on the login screen: renders only when a sign-in is stored
-   <BiometricSignIn onCredentials={({ server, user, password }) => signIn(server, user, password)} />
-   ```
-3. **How it signs in.** The button asks for the fingerprint, then hands the stored `{ server, user, password }` to your `onCredentials`, which runs your normal login. If the password was changed on the server, the login fails and the message shows under the button; the person signs in with the new password and turns the switch on again.
-
-The password never leaves the phone and is never sent to your site except by your own login call. The kit keeps no copy outside secure storage; a plain marker (not the password) tells the screen whether one exists, so checking never prompts.
-
-## Updates on the phone
-
-- **On open.** The app checks for an OTA bundle. If one downloads in the first 20 seconds, it restarts into it. A later download waits for the next opening, so the app never restarts under someone mid-task.
-- **Check for updates.** The one button in App & Server. It checks GitHub Releases for a new APK first, because a new APK carries a new runtime and supersedes any OTA bundle. If the APK is current it asks for an OTA bundle. When an APK is available the same button reads **Download v1.3.0 (size)**, then **Install v1.3.0**.
-- **Download updates.** A choice under that button: **Wi-Fi only** (the default), **Any network** or **Off**. The user's choice wins over `apk.autoDownload`. Once a day the app checks GitHub Releases; on Wi-Fi it downloads a newer APK in the background and offers **Install now**. **Later** is remembered for that version. A finished download is kept, so a dismissed installer can be reopened without downloading again.
-- **A downloaded APK must be installed.** Once a newer APK is on the phone, an **Update required** dialog covers the whole app. It has one button, **Install now**; the Android back button does nothing. If the person cancels Android's installer they land on the dialog again, and if Android has not yet allowed installs from this app the dialog offers a shortcut to that setting. Set `apk: { force: false }` for the old behaviour: an **Install now / Later** prompt that asks again next time.
-- **You can see that something is downloading.** While an APK (or an OTA bundle) downloads, a ring of dots appears around the floating Settings button. For an APK the dots light up clockwise with the real progress; an OTA bundle has no known size, so a short arc travels around the ring instead. The ring is part of the floating button, so it is hidden with it: on the kit's own pages, while the keyboard is open, and (with your own `useAuth` wired) before sign-in. The Settings page shows the same progress as text.
-- **Android cannot install an APK silently.** The user always confirms in Android's installer, and the first time Android also asks to allow installs from this app.
-
-## Local and production sites
-
-Dev builds (`__DEV__`: Metro, dev clients) use the dev site. Release builds and OTA use the production site. `init` writes both:
-
-```ts
-site: { production: 'https://your.site', development: 'http://localhost:8000' },
-```
-
-Without a development site every build uses production. Pin one with `environment: 'production'` or `'development'`.
-
-- `localhost` works in the iOS simulator. The Android emulator needs `http://10.0.2.2:<port>`. A real phone needs your computer's LAN address, and a bench listening on it.
-- Names ending in `.local` do not resolve from phones or the Android emulator. Use the LAN IP and make the bench answer on it (`bench use <site>` sets the default site).
-- A plain `http://` site needs Android cleartext traffic and an iOS App Transport Security exception. The kit's config plugin sets both for the hosts listed under `expo.extra.mobileKit.sites`, never the global "allow all HTTP" flag, and warns at prebuild. An `http://` production site gets a loud warning. Opt out with `["@upande/mobile-kit", { "cleartext": false }]`. This is native configuration, so it needs a new native build.
-
 ## Crash and API monitoring
 
 On by default. Everything captured is shown in the [web portal](#the-web-portal) at **`https://your.site/mobile-monitor`** (System Managers only). The user can turn reporting off in Settings, and `monitor: { enabled: false }` installs nothing.
 
-**Captured**
+### What is captured
 
 - Unhandled JavaScript errors (a fatal one is sent at once), unhandled promise rejections, and render errors if you wrap the app in `<MonitorErrorBoundary>` or set `monitor.errorBoundary`.
 - `console.error(err)` calls that carry an Error, which covers errors your app catches and logs. Plain strings and React warnings are not reported. Turn off with `captureConsoleErrors: false`.
@@ -478,11 +547,26 @@ On by default. Everything captured is shown in the [web portal](#the-web-portal)
 - The last 30 screens and API calls as breadcrumbs.
 - The device: OS version and build, brand, model, battery level and state, low-power mode, free and total storage, memory, network, locale, time zone, screen, build type, app, runtime and update ids, and any optional native modules missing from this build.
 - The signed-in user your `useAuth` reports: id, name and roles.
-- **The connection and how it performs**, with every report and device snapshot: connection type, the round trip to your server (a tiny `GET /api/method/ping`, at most once a minute, in the background), and how long the app's own API calls are taking: count, average and 95th-percentile response time and the share that failed, over the last 100 calls. Install `@react-native-community/netinfo` (`npx expo install @react-native-community/netinfo`, then make a new native build) to add the **Wi-Fi name, signal strength, link speed and band**, and the cellular generation. Android only shows the Wi-Fi name when the app holds the location permission; without it that one field is left out. Nothing here is a speed test: link speed is what the radio negotiated, and latency and response times are measured from real use.
+- The connection and how it performs; see [Network and performance](#network-and-performance).
 
-**Cost to the app.** Capturing only pushes a small object into a bounded in-memory buffer. Redaction, serialising and device probes run later, off the interaction path, in one batched request: every 30 seconds while events wait, at 20 events, and when the app goes to the background. Repeats within 60 seconds become one event with a count, a session sends at most 200 events, and an offline queue (100 events, 1 MB) retries with back-off. Reports need a signed-in session; earlier events wait and are sent after sign-in.
+### Network and performance
 
-**Hooks.** `MobileKitProvider` wraps `fetch`. For axios call `attachAxios(instance)` once. For a custom client wrap it with `withMonitoring(api)`. By hand:
+Every report and device snapshot carries how the network treats the app:
+
+- **Connection type**, and whether the phone is online and the internet reachable.
+- **Latency to your server**: a tiny `GET /api/method/ping`, at most once a minute, in the background.
+- **How long the app's own calls take**: the count, the average and 95th-percentile response time, and the share that failed, over the last 100 calls.
+- **Wi-Fi details** with `@react-native-community/netinfo` in the build (`npx expo install @react-native-community/netinfo`, then a new native build): the Wi-Fi name, signal strength, link speed and band, and the cellular generation. Android only shows the Wi-Fi name when the app holds the location permission; without it that one field is left out.
+
+Nothing here is a speed test: link speed is what the radio negotiated, and latency and response times are measured from real use. The portal shows these on the Devices view, a device's page and every report. To keep the Wi-Fi name out of your data, leave netinfo out.
+
+### Cost to the app
+
+Capturing only pushes a small object into a bounded in-memory buffer. Redaction, serialising and device probes run later, off the interaction path, in one batched request: every 30 seconds while events wait, at 20 events, and when the app goes to the background. Repeats within 60 seconds become one event with a count, a session sends at most 200 events, and an offline queue (100 events, 1 MB) retries with back-off. Reports need a signed-in session; earlier events wait and are sent after sign-in.
+
+### Hooks
+
+`MobileKitProvider` wraps `fetch`. For axios call `attachAxios(instance)` once. For a custom client wrap it with `withMonitoring(api)`. By hand:
 
 ```ts
 import { captureException, captureMessage, addBreadcrumb } from '@upande/mobile-kit';
@@ -492,13 +576,59 @@ captureMessage('Sync finished late', 'warning');
 addBreadcrumb({ type: 'user', message: 'Opened the scanner' });
 ```
 
-**Privacy.** Read this before shipping.
+### Privacy
+
+Read this before shipping.
 
 - Secrets are redacted on the phone, then again on the server. Header, query and body field names containing `authorization`, `cookie`, `token`, `secret`, `password`, `passwd`, `api_key`, `session`, plus the whole words `sid`, `pwd`, `pin`, `otp`, `cvv` and `card` become `[redacted]`. Add more with `monitor.redactKeys`.
 - Redaction is by name. A secret in a field with another name, or inside free text, is not found by the phone. If your responses carry personal data, set `captureBodies: false` or add the field names to `redactKeys`.
 - Bodies are cut at `maxBodyBytes` (8 KB). Binary bodies are never recorded, only their size.
 - The server stores the IP address it sees, and a hash of the device identifier.
 - Ignore noisy calls with `ignoreUrls`, for example `['exp.host/--/api/v2/push', /\/healthz$/]`.
+
+## The web portal
+
+Reports from your apps land on a web portal that the backend serves: **`https://your.site/mobile-monitor`**.
+
+- **How to open it:** sign in to your Frappe site as a System Manager, then open that address in a browser. If you are signed out you are sent to the login page and back. Other users get a permission error. The portal has no menu entry in Frappe, so bookmark it.
+- **What you get:**
+  - an overview: events per day, top issues, app versions, device models and OS versions in use, and fleet health;
+  - every crash, error and failed API request grouped into issues, each with the stack, the request and response (headers and payload, secrets removed), breadcrumbs, the device (OS, model, battery, storage, network, app and runtime versions) and the signed-in user, with Resolve and Ignore;
+  - a Devices view of every registered phone, with filters for low battery, low storage, offline, old OS and old app, and each device's timeline, with its Wi-Fi, latency and kit version;
+  - a **Support** page for [problem reports and chat](#help-and-support), where you set a report's status and reply to people;
+  - an **App** page per app: current version, how many devices have it, and what is new.
+- **What it needs:** the backend installed with `bench build --app upande_mobile` run once, the app registered on that site, and the app signed in so it can send reports. See [Crash and API monitoring](#crash-and-api-monitoring) for what the app captures, and the [backend README](https://github.com/mark-judah/upande-mobile#the-web-portal) for the portal itself.
+
+The portal is separate from the Settings page inside your app: the portal is for you, the Settings page is for your users.
+
+## Help and support
+
+The **Help** card in Settings has three rows, **Report a problem**, **Chat with support** and **What's new**. Each can be turned off: `support: false`, `support: { chat: false }`, `whatsNew: false`. They need the backend (`upande_mobile` 0.2.0 or newer, then `bench migrate`).
+
+### Report a problem
+
+The person writes a subject and what happened. The kit adds:
+
+- **a screenshot of the screen they were on**, taken when they tapped the floating button, before Settings covered it (needs `react-native-view-shot`; without it the report goes without a screenshot);
+- the **device and connection**, the **last 15 requests** (addresses and results only, secrets removed) and the **[last crash](#last-crash-capture)**.
+
+A "What will be sent" list shows all of it before they send. The report lands in the [web portal](#the-web-portal) under **Support** as a *Mobile Report*, with a status you set (Open, In Progress, Resolved).
+
+### Chat with support
+
+A conversation between the person and your team. The person types, staff reply from the portal's Support page, and the reply shows in the app within a few seconds while the chat is open. A badge on the row counts unread replies.
+
+### What's new
+
+After the app updates, a sheet shows the new version's release notes once: the same notes the release workflow writes to the GitHub Release (Features, Fixes and so on, without commit hashes). It never shows on a first install, and shows nothing for a version without notes. The row in Settings reopens it any time. The notes are read from GitHub once per version.
+
+### Last crash capture
+
+Unhandled errors and render errors are saved on the phone, so a report filed after a black screen or a restart still carries what broke. The crash is sent only inside a report the person chooses to send, then forgotten.
+
+### Connection banner
+
+A banner appears when the phone has been offline for 25 seconds, or when the last round trip to your server took 3 seconds or more. It has a **Wi-Fi settings** shortcut, because an app cannot switch Wi-Fi itself on modern Android. Tune it with `connectionBanner: { staleAfterSec: 25, slowMs: 3000 }` or turn it off with `connectionBanner: false`.
 
 ## Configuration
 
@@ -514,34 +644,62 @@ configureMobileKit({
 });
 ```
 
+### Identity and connection
+
 | Key | Default | Meaning |
 |---|---|---|
 | `appName` | required | The Mobile App name on the server and the app's title |
 | `githubRepo` | required | `owner/repo` whose Releases carry the APKs |
-| `site` | none | Site URL, or `{ production, development }` |
+| `site` | none | Site URL, or `{ production, development }` (see [Local and production sites](#local-and-production-sites)) |
 | `environment` | from `__DEV__` | `'development'` or `'production'` to pin the choice |
 | `useAuth` | stand-in | `() => ({ isSystemManager, user, instanceUrl, biometricEnabled, setBiometricEnabled, roles?, fullName?, email?, logout?, forgetDevice? })` |
 | `api` | built-in `fetch` | Your Frappe client; must resolve to the response body |
 | `authHeaders` | none | Extra headers for the built-in client |
 | `storage` | AsyncStorage, else memory | `{ get, set, remove }` |
-| `fab` | `true` | `true`, `false`, `'dev'` (development builds only) or `{ initialSide: 'left' \| 'right', bottom: 96, whenSignedOut: false }`. With your own `useAuth` wired the button hides until someone is signed in (your sign-in gate would send the page straight back to login); `whenSignedOut: true` shows it anyway |
-| `biometric` | `'kit'` | `'kit'`: Settings shows the Biometric unlock switch (it confirms with a fingerprint and stores the choice; your sign-in flow acts on it). `'host'`: your app already has its own lock and enforces it. `'vault'`: the kit keeps the sign-in behind the fingerprint (see [Fingerprint sign-in vault](#fingerprint-sign-in-vault-biometric-vault)). See [Fingerprint unlock](#fingerprint-unlock) |
-| `apk.autoDownload` | `'wifi'` | `'wifi'`, `'always'` or `'never'`. The user's Settings choice wins |
-| `support` | `true` | `false` hides the Help card's report and chat rows; `{ report: false }` or `{ chat: false }` hides one |
-| `whatsNew` | `true` | Show release notes once after an update, and the Settings row |
-| `connectionBanner` | `true` | `false`, or `{ staleAfterSec: 25, slowMs: 3000 }` |
-| `apk.force` | `true` | `true`: a downloaded APK blocks the app with a dialog that cannot be closed until it is installed. `false`: the dialog has a **Later** button |
-| `monitor` | see below | Crash and API monitoring options |
-| `theme`, `ui` | built-in look | Colours and fonts, or swap `Screen`, `Card`, `Button`, `useToast`, `showDialog`, `useOnline` |
-| `serverApps` | Frappe and ERPNext | `[key, label][]` site apps to list on Settings |
 | `loginRoute` | `'/login'` | Where Sign out and Forget this device go |
 | `endpoints` | the `upande_mobile` paths | Override `registerInstall`, `installs`, `versions`, `ingest`, `submitReport`, `chat` |
-| `otaOpenWindowMs` | `20000` | A bundle downloaded within this long of opening restarts the app at once |
-| `foregroundReportMinMs` | `30000` | Minimum time between foreground device reports |
-| `settingsRoute`, `devicesRoute` | `/mobile-kit/settings`, `/mobile-kit/devices` | Rarely needed; the defaults live in a folder no app uses, so they cannot collide |
-| `instanceKey`, `deviceKey`, `errorMessage`, `onAvatarLongPress` | none | Optional hooks |
+| `instanceKey`, `deviceKey` | none | Optional hooks: how a server URL becomes a storage key, and a better hardware id |
 
 Without `useAuth`, `api` and `storage` the kit runs on stand-ins. The Settings page looks fine, but sign-out, the biometric switch and the device register are not connected to your session. `init` wires them when it finds your auth store, API client and storage, development builds log what is still a stand-in, and `getConfigGaps()` returns the list.
+
+### Updates
+
+| Key | Default | Meaning |
+|---|---|---|
+| `apk.autoDownload` | `'wifi'` | `'wifi'`, `'always'` or `'never'`. The user's Settings choice wins |
+| `apk.force` | `true` | `true`: a downloaded APK blocks the app with a dialog that cannot be closed until it is installed ([forced install](#forced-install)). `false`: the dialog has a **Later** button |
+| `otaOpenWindowMs` | `20000` | A bundle downloaded within this long of opening restarts the app at once |
+| `foregroundReportMinMs` | `30000` | Minimum time between foreground device reports |
+
+### Interface
+
+| Key | Default | Meaning |
+|---|---|---|
+| `fab` | `true` | `true`, `false`, `'dev'` or `{ initialSide: 'left' \| 'right', bottom: 96, whenSignedOut: false }` (see [the floating button](#the-floating-button)) |
+| `theme`, `ui` | built-in look | Colours and fonts, or swap `Screen`, `Card`, `Button`, `useToast`, `showDialog`, `useOnline` |
+| `serverApps` | Frappe and ERPNext | `[key, label][]` site apps to list on Settings. The kit's backend is always added |
+| `settingsRoute`, `devicesRoute` | `/mobile-kit/settings`, `/mobile-kit/devices` | Rarely needed; the defaults live in a folder no app uses, so they cannot collide |
+| `errorMessage`, `onAvatarLongPress` | none | Optional hooks |
+
+### Security
+
+| Key | Default | Meaning |
+|---|---|---|
+| `biometric` | `'kit'` | `'kit'`: the Settings switch stores the choice and your sign-in flow acts on it. `'host'`: your app has its own lock and enforces it. `'vault'`: the kit keeps the sign-in behind the fingerprint. See [Fingerprint unlock](#fingerprint-unlock) |
+
+### Help and support
+
+| Key | Default | Meaning |
+|---|---|---|
+| `support` | `true` | `false` hides **Report a problem** and **Chat with support**; `{ report: false }` or `{ chat: false }` hides one |
+| `whatsNew` | `true` | Show release notes once after an update, and the Settings row |
+| `connectionBanner` | `true` | `false`, or `{ staleAfterSec: 25, slowMs: 3000 }` |
+
+### Monitoring
+
+| Key | Default | Meaning |
+|---|---|---|
+| `monitor` | see below | Crash and API monitoring options |
 
 `monitor` options:
 
@@ -562,9 +720,9 @@ Without `useAuth`, `api` and `storage` the kit runs on stand-ins. The Settings p
 | `showToggle` | `true` (the "Send crash reports" row) |
 | `showTestActions` | `__DEV__` (the "Send test error" button) |
 
-Config plugin props (in `app.json`, for example `["@upande/mobile-kit", { "strict": false }]`): `manifestUrl`, `otaBaseUrl`, `sites` / `site` / `devSite`, `cleartext` (`false` opts out), `strict` (`false` turns the missing-native-module build failure into a warning) and `biometric` (`'host'` leaves out `expo-local-authentication`).
+### Config plugin
 
-Add your own rows to Settings without forking: `<SettingsScreen extraSections={...} profileExtra={...} />`.
+Config plugin props (in `app.json`, for example `["@upande/mobile-kit", { "strict": false }]`): `manifestUrl`, `otaBaseUrl`, `sites` / `site` / `devSite`, `cleartext` (`false` opts out), `strict` (`false` turns the missing-native-module build failure into a warning) and `biometric` (`'host'` leaves out `expo-local-authentication`).
 
 ## Native modules
 
@@ -575,20 +733,21 @@ The kit needs ten native modules: `expo-updates`, `expo-constants`, `expo-file-s
 - The config plugin stops `expo prebuild`, EAS and CI with the exact command if one is missing. `strict: false` makes it a warning.
 - A native module added later only works after a new native build. An OTA update cannot deliver it. Settings shows "rebuild required" for a module that is installed but not in the running binary.
 
+### Optional extras
 
-**Optional extras.** These are never required and never nag; each switches on one feature when it is in the build.
+These are never required and never nag; each switches on one feature when it is in the build.
 
 | Package | Adds |
 |---|---|
-| `react-native-view-shot` | The screenshot in **Report a problem** |
-| `expo-secure-store` | The [fingerprint sign-in vault](#fingerprint-sign-in-vault-biometric-vault) |
-| `@react-native-community/netinfo` | Wi-Fi name, signal, link speed and band in device reports |
+| `react-native-view-shot` | The screenshot in [Report a problem](#report-a-problem) |
+| `expo-secure-store` | The [fingerprint sign-in vault](#fingerprint-sign-in-vault) |
+| `@react-native-community/netinfo` | Wi-Fi name, signal, link speed and band ([Network and performance](#network-and-performance)) |
 
 Install with `npx expo install <package>` and make a new native build (an OTA update cannot add native code).
 
 ## CLI reference
 
-Run all commands from the app root (the folder with `app.json`).
+Run all commands from the app root (the folder with `app.json`), except `release`, which runs in the kit's own repository.
 
 | Command | What it does |
 |---|---|
@@ -598,6 +757,7 @@ Run all commands from the app root (the folder with `app.json`).
 | `npx upande-mobile-kit doctor [--site URL] [--dev-site URL]` | The quick version of `verify`. |
 | `npx upande-mobile-kit version [--apply] [--json] [--notes] [--bump auto\|patch\|minor\|major] [--set X.Y.Z] [--apk] [--keep-version]` | Prints the next version, the release type (OTA or APK) and the reason (a dry run), or with `--apply` writes the version to `app.json` and `package.json`. `--apk` builds an APK for this release on the same runtime. Used by the workflow. |
 | `npx upande-mobile-kit publish-ota [--out dir]` | Builds the OTA bundle into `./ota`. Used by the workflow. |
+| `npx upande-mobile-kit release [patch\|minor\|major\|X.Y.Z] [--push] [--dry-run] [--list] [--skip-checks] [--allow-branch]` | For maintainers, run in the kit's own repository (not in an app): checks, bumps the version, commits and tags `v<version>`. See [For maintainers](#for-maintainers). |
 
 `init` flags. With no value flags it runs the wizard. Any value flag runs the plain, non-interactive version.
 
@@ -648,6 +808,15 @@ npx upande-mobile-kit init --yes --site https://your.site --dev-site http://loca
 | Devices page is empty | The device register needs a signed-in Frappe user and a `useAuth` that reports one | Wire `useAuth` in `src/mobile-kit.ts` |
 | `.local` site unreachable from the phone | Phones do not resolve `.local` names | Use your computer's LAN IP |
 | `http://` site blocked | Cleartext not enabled in the native build | List the site under `expo.extra.mobileKit.sites` and make a new native build |
+| The Update required dialog keeps coming back | The installer was cancelled, or Android blocks installs from this app | Tap **Install now** and allow installs from this app when Android asks. Set `apk: { force: false }` for a dialog with **Later** |
+| No ring on the floating button while updating | The button is hidden (kit pages, keyboard, before sign-in) or `fab` is off | The ring is part of the floating button; see [the floating button](#the-floating-button) |
+| **Report a problem** says it could not send | The backend is older than 0.2.0 or has not been migrated, or the phone is offline | Update `upande_mobile`, run `bench --site your.site migrate`, retry |
+| A report has no screenshot | `react-native-view-shot` is not in the build, or Settings was opened without the floating button | `npx expo install react-native-view-shot`, then a new native build |
+| **Chat with support** never shows replies | Nobody has replied yet, or the backend lacks the support endpoints | Reply from the portal's Support page; update and migrate the backend |
+| "What's new" never appears | A first install, no notes on that GitHub release, or `whatsNew: false` | Add notes through commit messages; the row in Settings reopens it |
+| The fingerprint switch says "Needs a newer build" | `expo-secure-store` is not in the running build | `npx expo install expo-secure-store`, then a new native build |
+| The banner says the connection is slow | The last round trip to your server took 3 seconds or more | Check the network; raise `connectionBanner.slowMs` or turn it off |
+| "Upande Mobile Kit (server)" says "not installed" | The site does not have the `upande_mobile` app | Install the backend ([Quick start](#quick-start)) |
 | Expo Go ignores part of the setup | Expo Go does not run config plugins or add native modules | Use a development build |
 
 ## Security and privacy
@@ -663,9 +832,7 @@ npx upande-mobile-kit init --yes --site https://your.site --dev-site http://loca
 
 ## For maintainers
 
-The kit is installed from this repository, so a release is a git tag:
-
-Commit your changes to `main`, then from the kit checkout:
+The kit is installed from this repository, so a release is a git tag. Commit your changes to `main`, then from the kit checkout:
 
 ```bash
 npx upande-mobile-kit release --dry-run   # show what would happen
