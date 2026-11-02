@@ -43,7 +43,7 @@ Every feature name links to its section. "Needs" lists native modules beyond the
 
 | Feature | What it does | Needs |
 |---|---|---|
-| [Report a problem](#report-a-problem) | A screenshot, the device, the last requests and the last crash, filed as an Issue on your site | `react-native-view-shot` for the screenshot |
+| [Report a problem](#report-a-problem) | From any screen (header button, long-press or your own trigger): a screenshot, the device, the last requests and the last crash, filed as an Issue on your site | `react-native-view-shot` for the screenshot |
 | [Chat with support](#chat-with-support) | A conversation with your team inside the app | none |
 | [What's new](#whats-new) | The release notes, shown once after an update | none |
 | [Last crash capture](#last-crash-capture) | The crash that made someone write in is attached to their report | none |
@@ -609,10 +609,27 @@ The **Help** card in Settings has three rows, **Report a problem**, **Chat with 
 
 The person writes a subject and what happened. The kit adds:
 
-- **a screenshot of the screen they were on**, taken when they tapped the floating button, before Settings covered it (needs `react-native-view-shot`; without it the report goes without a screenshot);
+- **a screenshot of the screen they were on**, taken at the moment they ask, before anything covers it (needs `react-native-view-shot`; without it the report goes without a screenshot);
 - the **device and connection**, the **last 15 requests** (addresses and results only, secrets removed) and the **[last crash](#last-crash-capture)**.
 
 A "What will be sent" list shows all of it before they send.
+
+**From any screen.** The report does not have to start in Settings. Each of these screenshots the screen the person is on, then opens the sheet over it:
+
+| Trigger | How |
+|---|---|
+| Long-press the floating button | Built in (600 ms). A tap still opens Settings |
+| A button in your own header or menu | `<ReportProblemButton />` (an icon, or pass `label="Report a problem"`) |
+| Anything else (a shake handler, a menu item, an error screen) | `await openReportProblem()`, or `const { reportProblem } = useReportProblem()` |
+
+```tsx
+import { ReportProblemButton, openSupportChat } from '@upande/mobile-kit';
+
+<Stack.Screen options={{ headerRight: () => <ReportProblemButton /> }} />
+// and for chat: openSupportChat()
+```
+
+The sheet is mounted by `<MobileKitProvider>`, so these work wherever the provider does. They do nothing, and return `false`, when the tool is off (`support: false`).
 
 **Where it lands.** On a site with the **Issue** doctype (ERPNext or Helpdesk) the report is filed as an ordinary **Issue**: subject `[Your App] what they wrote`, raised by the person's email, the diagnostics in the description under a divider line, and the **screenshot attached to the Issue**. It then follows your normal support workflow (numbering, SLA, assignment, replies). The [web portal](#the-web-portal)'s **Support** page lists these Issues and links to each in Desk. A site without Issue gets a *Mobile Report* record instead. See the [backend README](https://github.com/mark-judah/upande-mobile#problem-reports).
 

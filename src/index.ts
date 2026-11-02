@@ -71,6 +71,9 @@ export { BiometricSignIn } from './vault/BiometricSignIn';
 export { fetchWhatsNew } from './whats-new/WhatsNew';
 export { parseReleaseNotes } from './whats-new/notes';
 export type { NoteSection } from './whats-new/notes';
+export { openReportProblem, openSupportChat } from './support/controller';
+export { useReportProblem } from './support/useReportProblem';
+export { ReportProblemButton } from './support/ReportProblemButton';
 export { peekCrash } from './support/crash-store';
 export type { StoredCrash } from './support/crash-store';
 

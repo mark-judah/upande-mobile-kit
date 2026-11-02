@@ -6,10 +6,11 @@ import { DEFAULT_DEVICES_ROUTE, DEFAULT_SETTINGS_ROUTE, getConfig, KitKeys } fro
 import { openKitSettings } from '../open-settings';
 import { useInsets } from './insets';
 import { ProgressRing } from './ProgressRing';
+import { openReportProblem } from '../support/controller';
 import { rememberScreen } from '../support/screenshot';
 import { useUpdateActivity } from '../updates/useUpdateActivity';
 import {
-  clampBottom, decodePlacement, encodePlacement, FAB_SIZE, fabVisible, isTap, leftFor, placementAfterDrag, resolveFab,
+  clampBottom, decodePlacement, encodePlacement, FAB_SIZE, fabVisible, isLongPress, isTap, leftFor, placementAfterDrag, resolveFab,
   topFor, type FabPlacement,
 } from './fab-logic';
 
@@ -69,6 +70,7 @@ function FabOverlay() {
     }
   }, []);
 
+  const pressedAt = useRef(0);
   const pos = useRef(new Animated.ValueXY()).current;
   const current = useRef({ left: 0, top: 0 });
   const live = useRef({ win, insets, placement });
@@ -103,6 +105,7 @@ function FabOverlay() {
       PanResponder.create({
         onStartShouldSetPanResponder: () => true,
         onPanResponderGrant: () => {
+          pressedAt.current = Date.now();
           pos.setOffset({ x: current.current.left, y: current.current.top });
           pos.setValue({ x: 0, y: 0 });
         },
@@ -111,8 +114,10 @@ function FabOverlay() {
           pos.flattenOffset();
           if (isTap(g.dx, g.dy)) {
             pos.setValue({ x: current.current.left, y: current.current.top });
-            // A screenshot of this screen for "Report a problem", taken before the Settings page covers it.
-            void rememberScreen().finally(openKitSettings);
+            // A long press goes straight to "Report a problem"; a tap opens Settings. Either way the screenshot is
+            // taken of THIS screen first, before anything covers it.
+            if (isLongPress(Date.now() - pressedAt.current)) void openReportProblem().then((opened) => (opened ? undefined : openKitSettings()));
+            else void rememberScreen().finally(openKitSettings);
           } else settle({ dx: g.dx, dy: g.dy });
         },
         onPanResponderTerminate: () => {

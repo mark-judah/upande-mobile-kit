@@ -5,7 +5,7 @@ import { parseReleaseNotes, shouldShowWhatsNew } from '../src/whats-new/notes';
 import { bannerState, bannerText, isOffline, resolveBanner } from '../src/ui/connection-logic';
 import { mergeMessages } from '../src/support/support-api';
 import { summarizeDiagnostics, type Diagnostics } from '../src/support/diagnostics';
-import { supportOptions } from '../src/support/SupportCard';
+import { supportOptions } from '../src/support/options';
 import { KitKeys } from '../src/config';
 
 beforeEach(() => setup());

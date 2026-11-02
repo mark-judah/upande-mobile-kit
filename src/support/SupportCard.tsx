@@ -9,13 +9,7 @@ import type { NoteSection } from '../whats-new/notes';
 import { ChatModal } from './ChatModal';
 import { ReportIssueModal } from './ReportIssueModal';
 import { fetchUnread } from './support-api';
-
-/** Which support tools the app turned on (`support` in the config): both by default. */
-export function supportOptions(v: boolean | { report?: boolean; chat?: boolean } | undefined): { report: boolean; chat: boolean } {
-  if (v === false) return { report: false, chat: false };
-  const o = typeof v === 'object' && v ? v : {};
-  return { report: o.report !== false, chat: o.chat !== false };
-}
+import { supportOptions } from './options';
 
 /** The "Help" card in Settings: report a problem, chat with support, and the notes of this version. */
 export function SupportCard() {

@@ -106,3 +106,9 @@ export function decodePlacement(raw: string | null | undefined): FabPlacement | 
   }
   return null;
 }
+
+/** How long a press must last to count as a long-press, ms. */
+export const FAB_LONG_PRESS_MS = 600;
+
+/** A press held still for `FAB_LONG_PRESS_MS` or more. The floating button opens "Report a problem" on it. */
+export const isLongPress = (heldMs: number): boolean => heldMs >= FAB_LONG_PRESS_MS;
