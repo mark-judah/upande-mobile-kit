@@ -31,7 +31,13 @@ export type InstallRow = {
   previous_app_version: string | null;
   version_changed_at: string | null;
   is_physical_device: boolean;
+  /** The address the server saw the phone on. */
   ip_address: string | null;
+  /** What the phone reports about itself; each can be empty (Android 10+ and iOS hide the MAC address and serial). */
+  build_number?: string | null;
+  local_ip?: string | null;
+  mac_address?: string | null;
+  serial_number?: string | null;
   first_seen: string | null;
   last_seen: string | null;
   launches: number;

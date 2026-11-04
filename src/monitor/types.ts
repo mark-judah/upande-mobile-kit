@@ -51,6 +51,16 @@ export type DeviceFacts = {
   /** Version of @upande/mobile-kit this build contains. */
   kit_version?: string;
   build_type?: 'embedded' | 'ota' | 'dev';
+  /** The installed app's build number (Android versionCode / iOS build). */
+  build_number?: string;
+  /** The address the phone has on its own network. */
+  local_ip?: string;
+  /**
+   * Hardware identifiers. Android 10+ and iOS hide both from apps, so they are usually absent; they are filled when the
+   * phone can say them (a managed handheld), through `react-native-device-info`, or from `deviceInfo` in the config.
+   */
+  mac_address?: string;
+  serial_number?: string;
   install_id?: string;
   device_key?: string;
   /** Optional native modules this build was compiled without (a rebuild is needed to get them). */

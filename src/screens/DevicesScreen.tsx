@@ -63,6 +63,9 @@ function matches(r: InstallRow, q: string): boolean {
     r.os_version,
     r.app_version,
     r.ip_address,
+    r.local_ip,
+    r.mac_address,
+    r.serial_number,
     r.app,
     ...(r.users ?? []).flatMap((u) => [u.full_name, u.user, u.app_version]),
   ]
@@ -318,7 +321,11 @@ function DeviceRow({ row, serverNow, mine, first }: { row: InstallRow; serverNow
             <Detail label="Sign-ins" value={String(row.logins)} />
             <Detail label="Launches" value={String(row.launches)} />
             <Detail label="First seen" value={(row.first_seen ?? '—').slice(0, 16)} />
-            <Detail label="IP" value={row.ip_address || '—'} />
+            <Detail label="Build number" value={row.build_number || '—'} />
+            <Detail label="IP seen by the server" value={row.ip_address || '—'} />
+            <Detail label="Device IP" value={row.local_ip || '—'} />
+            <Detail label="MAC address" value={row.mac_address || '—'} />
+            <Detail label="Serial number" value={row.serial_number || '—'} />
             <Detail label="Install ID" value={row.install_id.slice(0, 8)} />
           </View>
         ) : null}

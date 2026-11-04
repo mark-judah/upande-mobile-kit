@@ -8,6 +8,7 @@ import { getConfig, isConfigured } from '../config';
 import { APP_VERSION, runtimeVersion } from '../version';
 import { KIT_VERSION } from '../kit-version';
 import { LIMITS, type DeviceFacts } from './types';
+import { cleanBuildNumber, cleanIp, cleanMac, cleanSerial } from './identity';
 import { apiTimingSummary, getProbeSite, lastLatencyMs, refreshLatency } from './net-stats';
 
 /**
@@ -42,10 +43,14 @@ const loadBattery = () => { try { return require('expo-battery'); } catch { retu
 const loadNetwork = () => { try { return require('expo-network'); } catch { return null; } };
 const loadLocalization = () => { try { return require('expo-localization'); } catch { return null; } };
 const loadNetInfo = () => { try { return require('@react-native-community/netinfo'); } catch { return null; } };
+const loadApplication = () => { try { return require('expo-application'); } catch { return null; } };
+const loadDeviceInfoLib = () => { try { return require('react-native-device-info'); } catch { return null; } };
 const device = () => optional('ExpoDevice', loadDevice);
 const battery = () => optional('ExpoBattery', loadBattery);
 const network = () => optional('ExpoNetwork', loadNetwork);
 const localization = () => optional('ExpoLocalization', loadLocalization);
+const application = () => optional('ExpoApplication', loadApplication);
+const deviceInfoLib = () => optional('RNDeviceInfo', loadDeviceInfoLib);
 /* eslint-enable @typescript-eslint/no-require-imports */
 
 const str = (v: unknown): string | undefined => (typeof v === 'string' && v ? v : undefined);
@@ -65,6 +70,35 @@ function withTimeout<T>(p: Promise<T>, ms: number): Promise<T | undefined> {
       },
     );
   });
+}
+
+let identityCache: Promise<DeviceFacts> | null = null;
+
+/**
+ * The hardware identifiers, read once per process: what the app hands over in `deviceInfo` first, then
+ * `react-native-device-info` if the app has it. On a stock phone both come back as placeholders and nothing is reported.
+ */
+function readIdentity(): Promise<DeviceFacts> {
+  identityCache ??= (async () => {
+    const t = LIMITS.deviceTimeoutMs;
+    let host: { serial_number?: string; mac_address?: string; local_ip?: string } = {};
+    try {
+      host = (await withTimeout(Promise.resolve(getConfig().deviceInfo?.()), t)) ?? {};
+    } catch {
+      host = {};
+    }
+    const lib = deviceInfoLib();
+    const [serial, mac] = await Promise.all([
+      lib?.getSerialNumber ? withTimeout(Promise.resolve(lib.getSerialNumber()), t) : undefined,
+      lib?.getMacAddress ? withTimeout(Promise.resolve(lib.getMacAddress()), t) : undefined,
+    ]);
+    return strip({
+      serial_number: cleanSerial(host.serial_number) ?? cleanSerial(serial),
+      mac_address: cleanMac(host.mac_address) ?? cleanMac(mac),
+      local_ip: cleanIp(host.local_ip),
+    });
+  })();
+  return identityCache;
 }
 
 let staticFacts: DeviceFacts | null = null;
@@ -93,6 +127,7 @@ export function readStaticFacts(): DeviceFacts {
     timezone,
     js_engine: hermes ? 'hermes' : 'jsc',
     kit_version: KIT_VERSION,
+    build_number: cleanBuildNumber(application()?.nativeBuildVersion),
     build_type: (__DEV__ ? 'dev' : Updates.isEmbeddedLaunch ? 'embedded' : 'ota') as DeviceFacts['build_type'],
     device_key: safe(() => androidId()) ?? undefined,
     missing_modules: missingFor(),
@@ -147,8 +182,14 @@ async function readDynamic(): Promise<DeviceFacts> {
   // Background latency probe (answer shows up on a later read) and the optional link details; neither is waited on.
   refreshLatency(siteUrl());
   const link = await withTimeout(linkDetails(), t);
+  const identity = await readIdentity();
+  // The address on the phone's own network: from the Wi-Fi details when netinfo is there, else from expo-network.
+  const localIp =
+    identity.local_ip ?? link?.local_ip ?? (n?.getIpAddressAsync ? cleanIp(await withTimeout(Promise.resolve(n.getIpAddressAsync()), t)) : undefined);
   return strip({
     ...link,
+    ...identity,
+    local_ip: localIp,
     latency_ms: lastLatencyMs(),
     ...apiTimingSummary(),
     battery_level: typeof level === 'number' && level >= 0 ? level : undefined,
@@ -184,6 +225,7 @@ async function linkDetails(): Promise<Partial<DeviceFacts>> {
     wifi_frequency_mhz: num(d.frequency),
     cellular_generation: str(d.cellularGeneration),
     carrier: str(d.carrier),
+    local_ip: cleanIp(d.ipAddress),
   });
 }
 
@@ -238,6 +280,7 @@ export function appBuildFacts(): { app_version: string; runtime_version?: string
 
 /** For tests. */
 export function resetDeviceCache(): void {
+  identityCache = null;
   staticFacts = null;
   dynamicCache = null;
   dynamicInflight = null;

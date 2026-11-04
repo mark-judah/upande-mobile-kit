@@ -188,20 +188,20 @@ describe('DevicesScreen (server render)', () => {
 });
 
 describe('help card and fingerprint vault', () => {
-  it('shows the Help card with report, chat and what’s new by default', () => {
+  it('shows the Help card with report and chat by default, and no What’s new', () => {
     const html = renderToString(<SettingsScreen />);
     expect(html).toContain('>Help<');
     expect(html).toContain('Report a problem');
     expect(html).toContain('My reports');
     expect(html).toContain('Ask support');
-    expect(html).toContain('What&#x27;s new');
+    expect(html).not.toContain('What&#x27;s new');
   });
   it('lets the app turn each tool off, and the whole card when none is left', () => {
     setup({ support: { chat: false } });
     let html = renderToString(<SettingsScreen />);
     expect(html).toContain('Report a problem');
     expect(html).not.toContain('Chat with support');
-    setup({ support: false, whatsNew: false });
+    setup({ support: false });
     html = renderToString(<SettingsScreen />);
     expect(html).not.toContain('>Help<');
   });

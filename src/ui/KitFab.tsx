@@ -6,6 +6,7 @@ import { DEFAULT_DEVICES_ROUTE, DEFAULT_SETTINGS_ROUTE, getConfig, KitKeys } fro
 import { openKitSettings } from '../open-settings';
 import { useInsets } from './insets';
 import { ProgressRing } from './ProgressRing';
+import { useShake } from './useShake';
 import { openReportProblem } from '../support/controller';
 import { rememberScreen } from '../support/screenshot';
 import { useUpdateActivity } from '../updates/useUpdateActivity';
@@ -184,7 +185,44 @@ function FabOverlay() {
     [pos, settle, startHold, stopHold],
   );
 
-  if (!fabVisible({ settings, pathname, routes, keyboardOpen, signedOut })) return null;
+  // Shake the phone to hide the button (for screens where it is in the way), shake again to bring it back. Remembered.
+  const [hidden, setHidden] = useState(false);
+  const hiddenNow = useRef(false);
+  hiddenNow.current = hidden;
+  useEffect(() => {
+    let alive = true;
+    cfg.storage
+      .get(KitKeys.fabHidden)
+      .then((v) => {
+        if (alive && v === '1') setHidden(true);
+      })
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- once, on mount
+  }, []);
+  // eslint-disable-next-line react-hooks/rules-of-hooks -- the host's toast hook is fixed for the life of the app
+  const toast = cfg.ui?.useToast ? cfg.ui.useToast() : null;
+  const ruleVisible = fabVisible({ settings, pathname, routes, keyboardOpen, signedOut });
+  const toggleHidden = useCallback(() => {
+    const next = !hiddenNow.current;
+    hiddenNow.current = next;
+    setHidden(next);
+    cfg.storage.set(KitKeys.fabHidden, next ? '1' : '0').catch(() => {});
+    try {
+      Vibration.vibrate(next ? [0, 40, 70, 40] : 60);
+    } catch {
+      /* no vibrator */
+    }
+    if (next) toast?.showSuccess('Settings button hidden. Shake the phone to bring it back.');
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- storage and toast are stable for the app's life
+  }, []);
+  // Only where the button would be shown (so a shake on the Settings page or the login screen does nothing), and
+  // while it is hidden, so the next shake can bring it back.
+  useShake(toggleHidden, settings.shake && ruleVisible);
+
+  if (!ruleVisible || hidden) return null;
 
   return (
     <View pointerEvents="box-none" style={styles.layer}>

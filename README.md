@@ -38,6 +38,7 @@ Every feature name links to its section. "Needs" lists native modules beyond the
 | [Devices page](#the-devices-page) | Which phones run which build, who used them, and which are behind | none |
 | [Crash and API monitoring](#crash-and-api-monitoring) | Errors and failed requests with headers, payload and response, plus device and user details | none |
 | [Network and performance](#network-and-performance) | Wi-Fi name and speed, latency to your server and how long the app's own calls take | `@react-native-community/netinfo` for the Wi-Fi details |
+| [Device identifiers](#device-identifiers) | Build number, the phone's own IP address and, where the phone allows, MAC address and serial number | `expo-application` (build number); `react-native-device-info` or `deviceInfo` for the rest |
 | [Web portal](#the-web-portal) | Issues, devices, per-app pages and support, on your own Frappe site | none |
 
 **Help and support**
@@ -47,7 +48,6 @@ Every feature name links to its section. "Needs" lists native modules beyond the
 | [Report a problem](#report-a-problem) | From any screen (header button, long-press or your own trigger): a screenshot, the device, the last requests and the last crash, filed as an Issue on your site | `react-native-view-shot` for the screenshot |
 | [My reports](#my-reports-and-chat-with-support) | Every report and question the person sent, with its status, the whole message thread, support's answers and each change of status | none |
 | [Reply notifications](#reply-notifications) | A push notification when support replies; tapping it opens the conversation | `expo-notifications`, an Expo project id, Firebase on Android |
-| [What's new](#whats-new) | The release notes, shown once after an update | none |
 | [Last crash capture](#last-crash-capture) | The crash that made someone write in is attached to their report | none |
 | [Connection banner](#connection-banner) | A warning when the phone is really offline (even when Android claims otherwise) or the server is slow, with a Wi-Fi settings shortcut | none |
 
@@ -228,7 +228,7 @@ From top to bottom:
 | Profile | The user's initial, name, email and site, taken from your `useAuth` |
 | Dev notice | Development builds only: which of `useAuth`, `api` and `storage` are still on the kit's stand-ins |
 | Security | The fingerprint switch (see [Fingerprint unlock](#fingerprint-unlock) and the [vault](#fingerprint-sign-in-vault)). With `biometric: 'host'` it still shows whenever your own `useAuth` is wired: it sets your `biometricEnabled` and your app does the locking |
-| Help | **Report a problem**, **My reports** and **What's new** (see [Help and support](#help-and-support)) |
+| Help | **Report a problem**, **My reports** and **Ask support** (see [Help and support](#help-and-support)) |
 | Diagnostics | The **Send crash reports** switch, and a **Send test error** button in development. Hidden with `monitor.showToggle: false` |
 | App & Server | The [version information](#version-information), the **Check for updates** button and the **Download updates** choice (see [Updates on the phone](#updates-on-the-phone)) |
 | Not available in this build | Only when an optional native module is missing, for example "Battery info unavailable: rebuild required" |
@@ -241,6 +241,8 @@ From top to bottom:
 A small translucent button opens Settings from any screen, whatever your navigation looks like. It can be dragged to either screen edge and remembers where it was left. It hides on the kit's own pages and while the keyboard is open, and, when your own `useAuth` is wired, before anyone has signed in (your sign-in gate would send the page straight back to login). It shows a [progress ring](#download-progress-ring) while an update downloads.
 
 Set `fab: false` to remove it and open the page yourself with `openKitSettings()`, `<KitSettingsButton />` or `router.push('/mobile-kit/settings')`. Options: `fab: 'dev'` (development builds only) or `fab: { initialSide: 'left', bottom: 96, whenSignedOut: true }`.
+
+**Shake to hide it.** Some screens have their own floating button, and the kit's gets in the way. Shake the phone to hide the button; shake again to bring it back. The phone buzzes, and the choice is remembered. It works only where the button would show (so a shake on Settings or the login screen does nothing) and needs `expo-sensors` in the build; without it nothing happens. Turn it off with `fab: { shake: false }`.
 
 ### Version information
 
@@ -374,7 +376,7 @@ Rules:
 - `--bump minor`, `--bump major` and `--set` (workflow inputs) always win over markers. `--bump auto`, `patch`, or nothing leave the decision to the markers.
 - An Expo SDK upgrade still forces a minor bump and an APK, whatever the markers say.
 
-A line starting with `Note:` (or `What's new:`) in a commit body is a note for the **users** of the app. It leads the release notes under "What's new" and is what the in-app [What's new](#whats-new) sheet shows. It has no effect on the version.
+A line starting with `Note:` (or `What's new:`) in a commit body is a note for the **users** of the app. It leads the GitHub release notes under "What's new". It has no effect on the version, and the app itself shows no release notes.
 
 The conventional commit type (`type(scope): description`) does not change the release. It only sorts the release notes:
 
@@ -590,6 +592,27 @@ Every report and device snapshot carries how the network treats the app:
 
 Nothing here is a speed test: link speed is what the radio negotiated, and latency and response times are measured from real use. The portal shows these on the Devices view, a device's page and every report. To keep the Wi-Fi name out of your data, leave netinfo out.
 
+### Device identifiers
+
+Every device snapshot (and the register) also carries what identifies the phone:
+
+| Fact | Where it comes from | When it is there |
+|---|---|---|
+| **Build number** | The installed app's build (the Android `versionCode`), from `expo-application` | Always |
+| **Device IP** | The address the phone has on its own network, from the Wi-Fi details (`@react-native-community/netinfo`) or `expo-network` | When connected. This is the phone's own address; the server separately records the address it saw the phone on (**IP seen**) |
+| **MAC address** and **serial number** | `deviceInfo` in the config, or `react-native-device-info` if the app has it | **Rarely on a stock phone.** Android 10 and later, and iOS, keep both from apps and hand back placeholders (`02:00:00:00:00:00`, `unknown`). A placeholder is not a fact, so it is dropped and the field stays empty |
+
+A fleet of managed handhelds (the app is a device owner, or a vendor SDK such as Zebra's can read the serial) can pass the real values:
+
+```ts
+configureMobileKit({
+  // ...
+  deviceInfo: async () => ({ serial_number: await Vendor.serial(), mac_address: await Vendor.mac() }),
+});
+```
+
+The callback is read once and its failure never reaches the app. All four are shown on the web portal's Devices view and on each device in the kit's Devices page, and are stored on the device's register row. They identify a phone, so leave out the ones you do not want: do not pass `deviceInfo`, and do not install `react-native-device-info`.
+
 ### Cost to the app
 
 Capturing only pushes a small object into a bounded in-memory buffer. Redaction, serialising and device probes run later, off the interaction path, in one batched request: every 30 seconds while events wait, at 20 events, and when the app goes to the background. Repeats within 60 seconds become one event with a count, a session sends at most 200 events, and an offline queue (100 events, 1 MB) retries with back-off. Reports need a signed-in session; earlier events wait and are sent after sign-in.
@@ -633,7 +656,7 @@ The portal is separate from the Settings page inside your app: the portal is for
 
 ## Help and support
 
-The **Help** card in Settings has three rows, **Report a problem**, **Chat with support** and **What's new**. Each can be turned off: `support: false`, `support: { chat: false }`, `whatsNew: false`. They need the backend (`upande_mobile` 0.2.0 or newer, then `bench migrate`).
+The **Help** card in Settings has **Report a problem** and **My reports** / **Ask support** (**Chat with support** on a site without Issues). Each can be turned off: `support: false`, `support: { chat: false }`. They need the backend (`upande_mobile` 0.2.0 or newer, then `bench migrate`).
 
 ### Report a problem
 
@@ -694,17 +717,15 @@ When support answers a conversation, the person's phone gets a push notification
 
 `push: false` turns the whole feature off. Without the requirements the switch simply does not appear (or says what is missing if you tap it).
 
-### What's new
+### Release notes
 
-After the app updates, a sheet shows the new version's release notes once. It never shows on a first install, and shows nothing for a version without notes. The row in Settings reopens it any time. The notes are read from the GitHub Release, once per version.
-
-**Write them for the people who use the app.** Commit messages are written for developers ("fix: batch the reads"). Add a line starting with `Note:` (or `What's new:`) to the body of any commit and the release workflow puts it in a **What's new** section at the top of the release notes:
+The release workflow puts the commit messages in the GitHub release notes. Add a line starting with `Note:` (or `What's new:`) to the body of any commit and it goes in a **What's new** section at the top of those notes, written for the people who use the app:
 
 ```bash
 git commit -m "feat(scan): batch the reads" -m "Note: Scanning is twice as fast"
 ```
 
-The in-app sheet then shows **only those lines**, with a "Show technical changes" link for the rest. A release with no `Note:` lines shows the full developer notes, as before.
+The app does not show release notes.
 
 ### Last crash capture
 
@@ -763,7 +784,8 @@ Without `useAuth`, `api` and `storage` the kit runs on stand-ins. The Settings p
 
 | Key | Default | Meaning |
 |---|---|---|
-| `fab` | `true` | `true`, `false`, `'dev'` or `{ initialSide: 'left' \| 'right', bottom: 96, whenSignedOut: false }` (see [the floating button](#the-floating-button)) |
+| `fab` | `true` | `true`, `false`, `'dev'` or `{ initialSide: 'left' \| 'right', bottom: 96, whenSignedOut: false, shake: true }` (see [the floating button](#the-floating-button)) |
+| `deviceInfo` | none | `() => ({ serial_number?, mac_address?, local_ip? })`: identifiers only your app can read (see [Device identifiers](#device-identifiers)) |
 | `theme`, `ui` | the Upande design system | Colours and fonts (see [Look and feel](#look-and-feel)), or swap `Screen`, `Card`, `Button`, `useToast`, `showDialog`, `useOnline` |
 | `serverApps` | Frappe and ERPNext | `[key, label][]` site apps to list on Settings. The kit's backend is always added |
 | `settingsRoute`, `devicesRoute` | `/mobile-kit/settings`, `/mobile-kit/devices` | Rarely needed; the defaults live in a folder no app uses, so they cannot collide |
@@ -782,7 +804,6 @@ Without `useAuth`, `api` and `storage` the kit runs on stand-ins. The Settings p
 |---|---|---|
 | `support` | `true` | `false` hides **Report a problem** and **Chat with support**; `{ report: false }` or `{ chat: false }` hides one |
 | `push` | `true` | Reply notifications: `false` turns them off; `{ projectId }` sets the Expo project id when it is not in `extra.eas.projectId`. See [Reply notifications](#reply-notifications) |
-| `whatsNew` | `true` | Show release notes once after an update, and the Settings row |
 | `connectionBanner` | `true` | `false`, or `{ staleAfterSec: 25, slowMs: 3000 }` |
 
 ### Monitoring
@@ -853,7 +874,9 @@ These are never required and never nag; each switches on one feature when it is 
 | `react-native-view-shot` | The screenshot in [Report a problem](#report-a-problem) |
 | `expo-notifications` | [Reply notifications](#reply-notifications) (also needs an Expo project id and, on Android, Firebase) |
 | `expo-secure-store` | The [fingerprint sign-in vault](#fingerprint-sign-in-vault) |
-| `@react-native-community/netinfo` | Wi-Fi name, signal, link speed and band ([Network and performance](#network-and-performance)) |
+| `@react-native-community/netinfo` | Wi-Fi name, signal, link speed and band ([Network and performance](#network-and-performance)) and the phone's own IP address |
+| `expo-sensors` | [Shake to hide the floating button](#the-floating-button) |
+| `react-native-device-info` | The MAC address and serial number, where the phone allows ([Device identifiers](#device-identifiers)) |
 
 Install with `npx expo install <package>` and make a new native build (an OTA update cannot add native code).
 
@@ -922,7 +945,6 @@ npx upande-mobile-kit init --yes --site https://your.site --dev-site http://loca
 | `http://` site blocked | Cleartext not enabled in the native build | List the site under `expo.extra.mobileKit.sites` and make a new native build |
 | The Update required dialog keeps coming back | The installer was cancelled, or Android blocks installs from this app | Tap **Install now** and allow installs from this app when Android asks. Set `apk: { force: false }` for a dialog with **Later** |
 | No ring on the floating button while updating | The button is hidden (kit pages, keyboard, before sign-in) or `fab` is off | The ring is part of the floating button; see [the floating button](#the-floating-button) |
-| The What's new sheet shows commit-style text | The release has no `Note:` lines | Add `Note: ...` lines to commit bodies ([What's new](#whats-new)) |
 | **Report a problem** says it could not send | The backend is older than 0.2.0 or has not been migrated, or the phone is offline | Update `upande_mobile`, run `bench --site your.site migrate`, retry |
 | A report is not in the Issue list | The site has no Issue doctype, so it went to Mobile Report | Look under the portal's Support page, or install ERPNext/Helpdesk |
 | A report has no screenshot | `react-native-view-shot` is not in the build, or Settings was opened without the floating button | `npx expo install react-native-view-shot`, then a new native build |
@@ -933,7 +955,6 @@ npx upande-mobile-kit init --yes --site https://your.site --dev-site http://loca
 | Tapping a notification does not open the conversation | The notification was not sent by the kit's backend (no support marker) | Only support-reply notifications carry it |
 | The offline banner never appears on one handheld model | Older kit versions trusted Android's "connected" | Update the kit; the banner now also counts failed requests |
 | The person is thrown to the login screen when the session expires | No silent re-login | Turn on the [vault](#fingerprint-sign-in-vault) and set `sessionRecovery.login` |
-| "What's new" never appears | A first install, no notes on that GitHub release, or `whatsNew: false` | Add notes through commit messages; the row in Settings reopens it |
 | The fingerprint switch says "Needs a newer build" | `expo-secure-store` is not in the running build | `npx expo install expo-secure-store`, then a new native build |
 | The banner says the connection is slow | The last round trip to your server took 3 seconds or more | Check the network; raise `connectionBanner.slowMs` or turn it off |
 | "Upande Mobile Kit (server)" says "not installed" | The site does not have the `upande_mobile` app | Install the backend ([Quick start](#quick-start)) |
@@ -943,7 +964,7 @@ npx upande-mobile-kit init --yes --site https://your.site --dev-site http://loca
 
 - This package is public. Nothing secret belongs in it or in `src/mobile-kit.ts`.
 - Reports go only to your own Frappe site. Both the phone and the server redact secrets before they are stored. See [Privacy](#crash-and-api-monitoring).
-- The Wi-Fi name (only with netinfo and the location permission), signal and speed are stored with the device's health. Leave `@react-native-community/netinfo` out if you do not want them.
+- The device facts reported with each snapshot include the build number and the phone's own IP address, and, when the phone or your app supplies them, the MAC address and serial number ([Device identifiers](#device-identifiers)). The Wi-Fi name (only with netinfo and the location permission), signal and speed are stored with the device's health. Leave `@react-native-community/netinfo` out if you do not want them.
 - A problem report contains what the person typed, an optional screenshot of their screen (it may show anything that was on it) and the diagnostics listed in the sheet. The person sees the list before sending. Reports and chat messages are readable by System Managers only.
 - The fingerprint vault keeps the sign-in in the phone's secure storage and nowhere else.
 - The Android ID is stored only as a hash. The server also records the IP address it sees. It never records location.

@@ -33,7 +33,6 @@ import { currentNetwork } from './network';
 import { runAutoDownload, shouldPromptInstall } from './auto-download';
 import { getAutoDownloadMode } from './preferences';
 import { ForceUpdateGate } from './ForceUpdateGate';
-import { WhatsNewGate } from '../whats-new/WhatsNew';
 import { createForegroundGate } from '../devices/foreground-gate';
 
 /**
@@ -386,7 +385,6 @@ export function UpdateProvider({ children }: { children: ReactNode }) {
       {gateOpen ? (
         <ForceUpdateGate version={gateApk?.version ?? ''} busy={launching} error={installError} onInstall={() => void onGateInstall()} />
       ) : null}
-      <WhatsNewGate suppressed={gateOpen} />
     </UpdateContext.Provider>
   );
 }

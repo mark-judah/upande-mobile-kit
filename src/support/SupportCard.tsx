@@ -3,9 +3,6 @@ import { Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { getConfig } from '../config';
 import { Row, Toggle, font, fontSize, ui, useTheme } from '../ui/primitives';
-import { APP_VERSION } from '../version';
-import { fetchWhatsNew, WhatsNewSheet } from '../whats-new/WhatsNew';
-import type { NoteSection } from '../whats-new/notes';
 import { SupportInbox } from './SupportInbox';
 import { ReportIssueModal } from './ReportIssueModal';
 import { fetchReportsOverview } from './support-api';
@@ -17,7 +14,7 @@ type Overview = { mode: 'issue' | 'chat'; open: number; total: number; unread: n
 
 /**
  * The "Help" card in Settings: report a problem, My reports (every report and question with its status, the
- * answers and each change of status), ask support, reply notifications, and the notes of this version.
+ * answers and each change of status), ask support and reply notifications.
  */
 export function SupportCard() {
   const cfg = getConfig();
@@ -25,11 +22,8 @@ export function SupportCard() {
   const { showSuccess, showError } = useToast();
   const t = useTheme();
   const opts = supportOptions(cfg.support);
-  const notes = cfg.whatsNew !== false;
-  const [open, setOpen] = useState<'report' | 'chat' | 'ask' | 'notes' | null>(null);
+  const [open, setOpen] = useState<'report' | 'chat' | 'ask' | null>(null);
   const [overview, setOverview] = useState<Overview | null>(null);
-  const [sections, setSections] = useState<NoteSection[] | null>(null);
-  const [loadingNotes, setLoadingNotes] = useState(false);
   const pushSupported = opts.chat && isPushSupported();
   const [pushOn, setPushOn] = useState(false);
   useEffect(() => {
@@ -53,16 +47,7 @@ export function SupportCard() {
     fetchReportsOverview().then(setOverview, () => {});
   }, [opts.chat, signedIn, open]);
 
-  if (!opts.report && !opts.chat && !notes) return null;
-
-  const openNotes = () => {
-    setOpen('notes');
-    setLoadingNotes(true);
-    fetchWhatsNew().then((r) => {
-      setSections(r);
-      setLoadingNotes(false);
-    });
-  };
+  if (!opts.report && !opts.chat) return null;
 
   const unread = overview?.unread ?? 0;
   const chatMode = overview?.mode === 'chat';
@@ -97,7 +82,6 @@ export function SupportCard() {
     rows.push((last) => <Row key="ask" icon="chatbubble-ellipses-outline" label="Ask support" hint="Start a conversation with the team" onPress={() => setOpen('ask')} last={last} />);
   }
   if (pushSupported) rows.push((last) => <Row key="push" icon="notifications-outline" label="Notify me about replies" hint="A notification when support answers" right={<Toggle value={pushOn} onChange={() => void togglePush()} />} last={last} />);
-  if (notes) rows.push((last) => <Row key="notes" icon="sparkles-outline" label="What's new" hint={`Changes in v${APP_VERSION}`} onPress={openNotes} last={last} />);
 
   return (
     <>
@@ -114,7 +98,6 @@ export function SupportCard() {
         />
       ) : null}
       {open === 'chat' || open === 'ask' ? <SupportInbox startNew={open === 'ask'} onClose={() => setOpen(null)} /> : null}
-      {open === 'notes' ? <WhatsNewSheet version={APP_VERSION} sections={sections} loading={loadingNotes} onClose={() => setOpen(null)} /> : null}
     </>
   );
 }

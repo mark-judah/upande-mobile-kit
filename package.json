@@ -36,7 +36,9 @@
     "expo-router": ">=6",
     "expo-updates": ">=29",
     "react": ">=19",
-    "react-native": ">=0.81"
+    "react-native": ">=0.81",
+    "expo-sensors": ">=14",
+    "react-native-device-info": ">=10"
   },
   "peerDependenciesMeta": {
     "expo-application": {
@@ -61,6 +63,12 @@
       "optional": true
     },
     "expo-file-system": {
+      "optional": true
+    },
+    "expo-sensors": {
+      "optional": true
+    },
+    "react-native-device-info": {
       "optional": true
     }
   },

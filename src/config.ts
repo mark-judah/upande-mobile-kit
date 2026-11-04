@@ -43,6 +43,9 @@ export type KitAuth = {
   forgetDevice?: () => Promise<void>;
 };
 
+/** Identifiers an app can hand to the kit (see `deviceInfo`). */
+export type DeviceInfo = { serial_number?: string; mac_address?: string; local_ip?: string };
+
 export type KitTheme = {
   primary: string;
   text: string;
@@ -206,6 +209,11 @@ export type KitFabOptions = {
    * Without a wired `useAuth` the kit cannot tell, and the button always shows.
    */
   whenSignedOut?: boolean;
+  /**
+   * Let the person hide the button by shaking the phone, and bring it back with another shake (for screens where it is in
+   * the way). Needs `expo-sensors` in the build; without it nothing happens. Default `true`. The choice is remembered.
+   */
+  shake?: boolean;
 };
 
 export type MobileKitConfig = {
@@ -238,6 +246,13 @@ export type MobileKitConfig = {
   monitor?: MonitorOptions;
   /** Turns a thrown API error into text for the screen. */
   errorMessage?: (err: unknown) => string;
+  /**
+   * Hardware identifiers the kit cannot read itself. Android 10+ and iOS hide the MAC address and the serial number
+   * from apps, so a stock phone reports neither. An app on managed handhelds (a device owner, or a vendor SDK such as
+   * Zebra's) can return them here and the kit reports them with the other device facts. Placeholders ("unknown",
+   * 02:00:00:00:00:00) are dropped. Never throws into the app.
+   */
+  deviceInfo?: () => DeviceInfo | Promise<DeviceInfo>;
   theme?: Partial<KitTheme>;
   ui?: KitUi;
   endpoints?: Partial<KitEndpoints>;
@@ -273,8 +288,6 @@ export type MobileKitConfig = {
    * support". `true` (default) shows both, `false` hides both, or turn one off: `{ chat: false }`.
    */
   support?: boolean | { report?: boolean; chat?: boolean };
-  /** Show "What's new" (from the GitHub release notes) once after the app updates, and as a Settings row. Default `true`. */
-  whatsNew?: boolean;
   /**
    * Push notifications for support replies (needs `expo-notifications`, an Expo project id and, on Android, Firebase
    * credentials). `true` (default): the person can turn them on in Settings, and is offered them after their first
@@ -414,8 +427,8 @@ export const KitKeys = {
   monitorEnabled: 'upande_kit:monitor_enabled',
   monitorQueue: 'upande_kit:monitor_queue',
   fabPosition: 'upande_kit:fab_position',
+  fabHidden: 'upande_kit:fab_hidden',
   lastCrash: 'upande_kit:last_crash',
-  lastSeenVersion: 'upande_kit:last_seen_version',
   vaultOffered: 'upande_kit:vault_offered',
   vaultMarker: 'upande_kit:vault_enrolled',
   chatLastSeen: 'upande_kit:chat_last_seen',

@@ -1,7 +1,6 @@
 import { setup, store } from './helpers';
 import * as vault from '../src/vault/vault-core';
 import { describeCrash, forgetCrash, peekCrash, rememberCrash } from '../src/support/crash-store';
-import { parseReleaseNotes, shouldShowWhatsNew } from '../src/whats-new/notes';
 import { bannerState, bannerText, isOffline, resolveBanner } from '../src/ui/connection-logic';
 import { loadSeen, markSeen, mergeMessages, unreadThreads, type ThreadSummary } from '../src/support/support-api';
 import { summarizeDiagnostics, type Diagnostics } from '../src/support/diagnostics';
@@ -93,29 +92,6 @@ describe('last crash', () => {
   });
 });
 
-describe('release notes', () => {
-  const body = ['## v1.2.8', '', '### Chores', '', '- bump kit (fdbab91)', '', '### Features', '', '- **ui:** add `ring` to the button (a1b2c3d)', '- plain item', '', '### Fixes', '', '- stop the flicker ([abcdef1](https://x/y))'].join('\n');
-  it('drops the title and hashes, puts features first and chores last', () => {
-    const s = parseReleaseNotes(body);
-    expect(s.map((x) => x.title)).toEqual(['Features', 'Fixes', 'Chores']);
-    expect(s[0].items).toEqual(['ui: add ring to the button', 'plain item']);
-    expect(s[1].items).toEqual(['stop the flicker']);
-  });
-  it('gives nothing for empty or free-form text without bullets', () => {
-    expect(parseReleaseNotes('')).toEqual([]);
-    expect(parseReleaseNotes(null)).toEqual([]);
-    expect(parseReleaseNotes('Just words.')).toEqual([]);
-  });
-  it('collects loose bullets under one heading', () => {
-    expect(parseReleaseNotes('- one\n- two')).toEqual([{ title: 'What changed', items: ['one', 'two'] }]);
-  });
-  it('shows after an update, never on a first install or the same version', () => {
-    expect(shouldShowWhatsNew(null, '1.0.0')).toBe(false);
-    expect(shouldShowWhatsNew('1.0.0', '1.0.0')).toBe(false);
-    expect(shouldShowWhatsNew('1.0.0', '1.0.1')).toBe(true);
-  });
-});
-
 describe('connection banner logic', () => {
   it('treats unknown as online and only the phone’s own "no" as offline', () => {
     expect(isOffline({ connected: undefined, reachable: undefined })).toBe(false);
@@ -201,22 +177,5 @@ describe('conversation unread tracking', () => {
     expect(Object.keys(seen)).toHaveLength(50);
     expect(seen.T59).toBeDefined();
     expect(seen.T0).toBeUndefined();
-  });
-});
-
-describe('user-facing release notes', () => {
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  const { splitNotes } = require('../src/whats-new/notes');
-  it('puts the lines written for users first and keeps the developer sections apart', () => {
-    const sections = parseReleaseNotes(["## v1.3.0", "", "### What's new", "", "- Scanning is twice as fast", "- You can report a problem from any screen", "", "### Features", "", "- **scan:** batch the reads (abc1234)", "", "### Chores", "", "- bump kit (def5678)"].join('\n'));
-    expect(sections.map((x) => x.title)).toEqual(["What's new", 'Features', 'Chores']);
-    const { highlights, technical } = splitNotes(sections);
-    expect(highlights).toEqual(['Scanning is twice as fast', 'You can report a problem from any screen']);
-    expect(technical.map((x: { title: string }) => x.title)).toEqual(['Features', 'Chores']);
-  });
-  it('with no friendly lines everything is technical', () => {
-    const { highlights, technical } = splitNotes(parseReleaseNotes('### Fixes\n\n- stop the flicker (abc1234)'));
-    expect(highlights).toEqual([]);
-    expect(technical).toHaveLength(1);
   });
 });
