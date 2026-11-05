@@ -73,19 +73,29 @@ describe('looking for updates when the app comes back', () => {
     expect(showDialog.mock.calls[0][2].map((b: { text: string }) => b.text)).toEqual(['Later', 'Restart now']);
   });
 
-  it('offers a downloaded bundle once per run, however often the app returns', async () => {
+  it('offers the same downloaded bundle only once, however often the app returns', async () => {
+    mockFetch.mockResolvedValue({ isNew: true, manifest: { id: 'bundle-1' } } as never);
     await mount();
-    act(() => fire('active'));
-    await settle();
     act(() => fire('active'));
     await settle();
     expect(mockCheck).toHaveBeenCalledTimes(1);
     jest.setSystemTime(10_000_000 + 11 * 60_000);
     act(() => fire('active'));
     await settle();
-    // Once a bundle has been downloaded and offered there is nothing more to look for this run.
-    expect(mockCheck).toHaveBeenCalledTimes(1);
+    // It looks again (a newer bundle may exist), but the same one is not offered twice.
     expect(showDialog).toHaveBeenCalledTimes(1);
+  });
+
+  it('offers a NEWER bundle that is published later the same day', async () => {
+    mockFetch.mockResolvedValue({ isNew: true, manifest: { id: 'bundle-1' } } as never);
+    await mount();
+    act(() => fire('active'));
+    await settle();
+    mockFetch.mockResolvedValue({ isNew: true, manifest: { id: 'bundle-2' } } as never);
+    jest.setSystemTime(10_000_000 + 11 * 60_000);
+    act(() => fire('active'));
+    await settle();
+    expect(showDialog).toHaveBeenCalledTimes(2);
   });
 
   it('does nothing on background, when nothing is new, or when the app turned it off', async () => {
