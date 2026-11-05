@@ -13,11 +13,11 @@ export const FAB_TAP_SLOP = 6;
 
 export type FabSide = 'left' | 'right';
 export type FabPlacement = { side: FabSide; bottom: number };
-export type FabSettings = { enabled: boolean; initialSide: FabSide; bottom: number; whenSignedOut: boolean; shake: boolean };
+export type FabSettings = { enabled: boolean; initialSide: FabSide; bottom: number; whenSignedOut: boolean };
 
 /** The config's `fab` value as settings. `isDev` is `__DEV__`. */
 export function resolveFab(fab: boolean | 'dev' | KitFabOptions | undefined, isDev: boolean): FabSettings {
-  const base = { initialSide: 'right' as FabSide, bottom: FAB_DEFAULT_BOTTOM, whenSignedOut: false, shake: true };
+  const base = { initialSide: 'right' as FabSide, bottom: FAB_DEFAULT_BOTTOM, whenSignedOut: false };
   if (fab === false) return { enabled: false, ...base };
   if (fab === 'dev') return { enabled: isDev, ...base };
   if (fab && typeof fab === 'object') {
@@ -26,7 +26,6 @@ export function resolveFab(fab: boolean | 'dev' | KitFabOptions | undefined, isD
       initialSide: fab.initialSide === 'left' ? 'left' : 'right',
       bottom: typeof fab.bottom === 'number' && Number.isFinite(fab.bottom) ? Math.max(0, fab.bottom) : base.bottom,
       whenSignedOut: fab.whenSignedOut === true,
-      shake: fab.shake !== false,
     };
   }
   return { enabled: true, ...base };

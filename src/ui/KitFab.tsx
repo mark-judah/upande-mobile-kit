@@ -6,7 +6,6 @@ import { DEFAULT_DEVICES_ROUTE, DEFAULT_SETTINGS_ROUTE, getConfig, KitKeys } fro
 import { openKitSettings } from '../open-settings';
 import { useInsets } from './insets';
 import { ProgressRing } from './ProgressRing';
-import { useShake } from './useShake';
 import { openReportProblem } from '../support/controller';
 import { rememberScreen } from '../support/screenshot';
 import { useUpdateActivity } from '../updates/useUpdateActivity';
@@ -19,7 +18,7 @@ import {
 /**
  * The floating Settings button. Rendered by `MobileKitProvider` over the whole app so the page is reachable
  * whatever the host's navigation looks like. Small and translucent, it hides on the kit's own pages and while the
- * keyboard is open, can be dragged to either screen edge, and remembers where it was left.
+ * keyboard is open, can be dragged up and down along either screen edge, and remembers where it was left. To get it out of the way, move it.
  */
 
 export function KitFab() {
@@ -185,54 +184,29 @@ function FabOverlay() {
     [pos, settle, startHold, stopHold],
   );
 
-  // Shake the phone to hide the button (for screens where it is in the way), shake again to bring it back. Remembered.
-  const [hidden, setHidden] = useState(false);
-  const hiddenNow = useRef(false);
-  hiddenNow.current = hidden;
+  // Older versions let the person hide the button by shaking the phone, and remembered it. That is gone (move the
+  // button instead), so a button hidden that way must not stay hidden with no way to bring it back.
   useEffect(() => {
-    let alive = true;
-    cfg.storage
-      .get(KitKeys.fabHidden)
-      .then((v) => {
-        if (alive && v === '1') setHidden(true);
-      })
-      .catch(() => {});
-    return () => {
-      alive = false;
-    };
+    cfg.storage.set(KitKeys.fabHidden, '0').catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps -- once, on mount
   }, []);
-  // eslint-disable-next-line react-hooks/rules-of-hooks -- the host's toast hook is fixed for the life of the app
-  const toast = cfg.ui?.useToast ? cfg.ui.useToast() : null;
   const ruleVisible = fabVisible({ settings, pathname, routes, keyboardOpen, signedOut });
-  const toggleHidden = useCallback(() => {
-    const next = !hiddenNow.current;
-    hiddenNow.current = next;
-    setHidden(next);
-    cfg.storage.set(KitKeys.fabHidden, next ? '1' : '0').catch(() => {});
-    try {
-      Vibration.vibrate(next ? [0, 40, 70, 40] : 60);
-    } catch {
-      /* no vibrator */
-    }
-    if (next) toast?.showSuccess('Settings button hidden. Shake the phone to bring it back.');
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- storage and toast are stable for the app's life
-  }, []);
-  // Only where the button would be shown (so a shake on the Settings page or the login screen does nothing), and
-  // while it is hidden, so the next shake can bring it back.
-  useShake(toggleHidden, settings.shake && ruleVisible);
 
-  if (!ruleVisible || hidden) return null;
+  if (!ruleVisible) return null;
 
   return (
     <View pointerEvents="box-none" style={styles.layer}>
+      {/* Two views on purpose: the outer one is moved by the finger (a JS-driven animation), the inner one is scaled by
+          the press (a native-driven one). React Native throws when both drive the SAME view, which froze the screen the
+          moment the button was dragged. */}
       <Animated.View
         {...responder.panHandlers}
         accessible
         accessibilityRole="button"
         accessibilityLabel={activityLabel(activity)}
-        style={[styles.fab, { backgroundColor: cfg.theme.primary, opacity: hold != null ? 1 : 0.9, transform: [...pos.getTranslateTransform(), { scale: press }] }]}
+        style={[styles.fab, { transform: pos.getTranslateTransform() }]}
       >
+      <Animated.View style={[styles.face, { backgroundColor: cfg.theme.primary, opacity: hold != null ? 1 : 0.9, transform: [{ scale: press }] }]}>
         <Ionicons name={opening ? 'camera' : hold != null && hold > 0.25 ? 'camera-outline' : 'settings-outline'} size={22} color={cfg.theme.textOnPrimary} />
         {hold != null ? (
           <View pointerEvents="none" style={styles.ringHost}>
@@ -243,6 +217,7 @@ function FabOverlay() {
             <ProgressRing size={RING_SIZE} fraction={activity.fraction} color={cfg.theme.primary} trackColor={cfg.theme.border} />
           </View>
         ) : null}
+      </Animated.View>
       </Animated.View>
     </View>
   );
@@ -279,6 +254,10 @@ const styles = StyleSheet.create({
     position: 'absolute',
     left: 0,
     top: 0,
+    width: FAB_SIZE,
+    height: FAB_SIZE,
+  },
+  face: {
     width: FAB_SIZE,
     height: FAB_SIZE,
     borderRadius: FAB_SIZE / 2,

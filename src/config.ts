@@ -209,10 +209,7 @@ export type KitFabOptions = {
    * Without a wired `useAuth` the kit cannot tell, and the button always shows.
    */
   whenSignedOut?: boolean;
-  /**
-   * Let the person hide the button by shaking the phone, and bring it back with another shake (for screens where it is in
-   * the way). Needs `expo-sensors` in the build; without it nothing happens. Default `true`. The choice is remembered.
-   */
+  /** Ignored. Shake to hide was removed (it was awkward): the person moves the button out of the way instead. */
   shake?: boolean;
 };
 

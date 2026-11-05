@@ -33,7 +33,7 @@ beforeEach(() => {
 describe('missing optional native modules', () => {
   it('lists exactly the ones this build lacks, each with what it disables', () => {
     const names = missingModuleNames();
-    expect(names.sort()).toEqual(['expo-battery', 'expo-intent-launcher', 'expo-local-authentication', 'expo-localization', 'expo-sensors']);
+    expect(names.sort()).toEqual(['expo-battery', 'expo-intent-launcher', 'expo-local-authentication', 'expo-localization']);
     const battery = missingModules().find((m) => m.pkg === 'expo-battery');
     expect(battery?.disables).toBe('Battery info unavailable');
     expect(OPTIONAL_MODULES.every((m) => m.disables.length > 0)).toBe(true);
@@ -48,11 +48,11 @@ describe('missing optional native modules', () => {
   });
 
   it('is empty when everything is present', () => {
-    ['ExpoBattery', 'ExpoIntentLauncher', 'ExpoLocalAuthentication', 'ExpoLocalization', 'ExponentAccelerometer'].forEach((n) => present.add(n));
+    ['ExpoBattery', 'ExpoIntentLauncher', 'ExpoLocalAuthentication', 'ExpoLocalization'].forEach((n) => present.add(n));
     try {
       expect(missingModuleNames()).toEqual([]);
     } finally {
-      ['ExpoBattery', 'ExpoIntentLauncher', 'ExpoLocalAuthentication', 'ExpoLocalization', 'ExponentAccelerometer'].forEach((n) => present.delete(n));
+      ['ExpoBattery', 'ExpoIntentLauncher', 'ExpoLocalAuthentication', 'ExpoLocalization'].forEach((n) => present.delete(n));
     }
   });
 });
@@ -60,7 +60,7 @@ describe('missing optional native modules', () => {
 describe('crash report device facts', () => {
   it('carry missing_modules so IT can tell a rebuild is needed', async () => {
     const facts = await collectDeviceFacts();
-    expect(facts.missing_modules?.slice().sort()).toEqual(['expo-battery', 'expo-intent-launcher', 'expo-local-authentication', 'expo-localization', 'expo-sensors']);
+    expect(facts.missing_modules?.slice().sort()).toEqual(['expo-battery', 'expo-intent-launcher', 'expo-local-authentication', 'expo-localization']);
     expect(peekDeviceFacts().missing_modules).toEqual(facts.missing_modules);
   });
 
@@ -77,7 +77,7 @@ describe('what is missing and why (the shared list, the probes, the words)', () 
 
   it('reads the same list the CLI and the config plugin read, and agrees on the fix command', () => {
     expect(FIX_COMMAND).toBe(lib.FIX_COMMAND);
-    expect(lib.NAMES).toHaveLength(11);
+    expect(lib.NAMES).toHaveLength(10);
     expect(OPTIONAL_MODULES.map((m) => m.pkg).sort()).toEqual(lib.MODULES.filter((m: { runtime: boolean }) => m.runtime).map((m: { pkg: string }) => m.pkg).sort());
   });
 

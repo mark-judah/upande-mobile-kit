@@ -86,13 +86,6 @@ const LOADERS: Record<string, () => unknown> = {
       throw e; // a missing package surfaces as the probe's load error
     }
   },
-  'expo-sensors': () => {
-    try {
-      return require('expo-sensors');
-    } catch (e) {
-      throw e; // a missing package surfaces as the probe's load error
-    }
-  },
   'expo-localization': () => {
     try {
       return require('expo-localization');

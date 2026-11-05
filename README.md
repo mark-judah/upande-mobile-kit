@@ -242,7 +242,7 @@ A small translucent button opens Settings from any screen, whatever your navigat
 
 Set `fab: false` to remove it and open the page yourself with `openKitSettings()`, `<KitSettingsButton />` or `router.push('/mobile-kit/settings')`. Options: `fab: 'dev'` (development builds only) or `fab: { initialSide: 'left', bottom: 96, whenSignedOut: true }`.
 
-**Shake to hide it.** Some screens have their own floating button, and the kit's gets in the way. Shake the phone to hide the button; shake again to bring it back. The phone buzzes, and the choice is remembered. It works only where the button would show (so a shake on Settings or the login screen does nothing) and needs `expo-sensors` in the build; without it nothing happens. Turn it off with `fab: { shake: false }`.
+**Out of the way.** Some screens have their own floating button. Press the kit's button and drag it: it follows your finger, then snaps to the nearest screen edge and stays where you leave it, so move it clear of whatever it covers. (Older versions hid it with a shake of the phone; that is gone, and a button hidden that way comes back by itself.)
 
 ### Version information
 
@@ -787,7 +787,7 @@ Without `useAuth`, `api` and `storage` the kit runs on stand-ins. The Settings p
 
 | Key | Default | Meaning |
 |---|---|---|
-| `fab` | `true` | `true`, `false`, `'dev'` or `{ initialSide: 'left' \| 'right', bottom: 96, whenSignedOut: false, shake: true }` (see [the floating button](#the-floating-button)) |
+| `fab` | `true` | `true`, `false`, `'dev'` or `{ initialSide: 'left' \| 'right', bottom: 96, whenSignedOut: false }` (see [the floating button](#the-floating-button)) |
 | `deviceInfo` | none | `() => ({ serial_number?, mac_address?, local_ip? })`: identifiers only your app can read (see [Device identifiers](#device-identifiers)) |
 | `theme`, `ui` | the Upande design system | Colours and fonts (see [Look and feel](#look-and-feel)), or swap `Screen`, `Card`, `Button`, `useToast`, `showDialog`, `useOnline` |
 | `serverApps` | Frappe and ERPNext | `[key, label][]` site apps to list on Settings. The kit's backend is always added |
@@ -878,7 +878,6 @@ These are never required and never nag; each switches on one feature when it is 
 | `expo-notifications` | [Reply notifications](#reply-notifications) (also needs an Expo project id and, on Android, Firebase) |
 | `expo-secure-store` | The [fingerprint sign-in vault](#fingerprint-sign-in-vault) |
 | `@react-native-community/netinfo` | Wi-Fi name, signal, link speed and band ([Network and performance](#network-and-performance)) and the phone's own IP address |
-| `expo-sensors` | [Shake to hide the floating button](#the-floating-button). **Required by the build check**: without it the shake does nothing, which is easy to miss. `npx upande-mobile-kit fix` installs it; it needs a new native build |
 | `react-native-device-info` | The MAC address and serial number, where the phone allows ([Device identifiers](#device-identifiers)) |
 
 Install with `npx expo install <package>` and make a new native build (an OTA update cannot add native code).

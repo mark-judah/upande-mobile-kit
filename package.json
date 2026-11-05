@@ -34,7 +34,6 @@
     "expo-constants": ">=18",
     "expo-file-system": ">=19",
     "expo-router": ">=6",
-    "expo-sensors": ">=14",
     "expo-updates": ">=29",
     "react": ">=19",
     "react-native": ">=0.81",
@@ -63,9 +62,6 @@
       "optional": true
     },
     "expo-file-system": {
-      "optional": true
-    },
-    "expo-sensors": {
       "optional": true
     },
     "react-native-device-info": {

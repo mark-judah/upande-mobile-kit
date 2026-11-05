@@ -8,7 +8,7 @@ const insets = { top: 24, bottom: 16 };
 
 describe('resolveFab', () => {
   it('is on by default, at the right edge', () => {
-    expect(resolveFab(undefined, false)).toEqual({ enabled: true, initialSide: 'right', bottom: FAB_DEFAULT_BOTTOM, whenSignedOut: false, shake: true });
+    expect(resolveFab(undefined, false)).toEqual({ enabled: true, initialSide: 'right', bottom: FAB_DEFAULT_BOTTOM, whenSignedOut: false });
     expect(resolveFab(true, false).enabled).toBe(true);
   });
   it('false hides it; "dev" shows it only in development builds', () => {
@@ -17,14 +17,9 @@ describe('resolveFab', () => {
     expect(resolveFab('dev', false).enabled).toBe(false);
   });
   it('an object keeps it on and sets the start; bad numbers fall back', () => {
-    expect(resolveFab({ initialSide: 'left', bottom: 140 }, false)).toEqual({ enabled: true, initialSide: 'left', bottom: 140, whenSignedOut: false, shake: true });
+    expect(resolveFab({ initialSide: 'left', bottom: 140 }, false)).toEqual({ enabled: true, initialSide: 'left', bottom: 140, whenSignedOut: false });
     expect(resolveFab({ bottom: Number.NaN }, false).bottom).toBe(FAB_DEFAULT_BOTTOM);
     expect(resolveFab({ bottom: -5 }, false).bottom).toBe(0);
-  });
-  it('shake-to-hide is on unless the app turns it off', () => {
-    expect(resolveFab({ shake: false }, false).shake).toBe(false);
-    expect(resolveFab({ initialSide: 'left' }, false).shake).toBe(true);
-    expect(resolveFab(true, false).shake).toBe(true);
   });
 });
 
