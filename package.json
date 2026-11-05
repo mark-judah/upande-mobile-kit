@@ -3,7 +3,7 @@
   "version": "0.16.0",
   "description": "Drop-in Settings page for Expo apps: OTA + APK updates from GitHub, biometric unlock, device register and version info, backed by a Frappe app.",
   "license": "MIT",
-  "private": true,
+  "private": false,
   "main": "src/index.ts",
   "types": "src/index.ts",
   "files": [
@@ -34,10 +34,10 @@
     "expo-constants": ">=18",
     "expo-file-system": ">=19",
     "expo-router": ">=6",
+    "expo-sensors": ">=14",
     "expo-updates": ">=29",
     "react": ">=19",
     "react-native": ">=0.81",
-    "expo-sensors": ">=14",
     "react-native-device-info": ">=10"
   },
   "peerDependenciesMeta": {
@@ -72,7 +72,6 @@
       "optional": true
     }
   },
-  "devDependencies": {},
   "repository": {
     "type": "git",
     "url": "git+https://github.com/mark-judah/upande-mobile-kit.git"
@@ -93,5 +92,9 @@
   ],
   "engines": {
     "node": ">=20"
+  },
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
   }
 }
