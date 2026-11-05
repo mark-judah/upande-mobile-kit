@@ -1,4 +1,4 @@
-import { noteNetworkResult } from './link-health';
+import { noteNetworkResult, noteServerStatus } from './link-health';
 
 /**
  * How the network treats this app: how long its own API calls take (rolling, in memory) and how long a tiny
@@ -70,9 +70,10 @@ export function refreshLatency(
   const timer = setTimeout(() => controller?.abort(), LATENCY_TIMEOUT_MS);
   doFetch(site.replace(/\/+$/, '') + PING_PATH, { method: 'GET', signal: controller?.signal })
     .then(
-      () => {
+      (res) => {
         latency = { at: now(), ms: Math.max(1, now() - started) };
         noteNetworkResult(true);
+        noteServerStatus((res as { status?: number } | undefined)?.status);
       },
       () => {
         latency = { at: now(), ms: LATENCY_TIMEOUT_MS };

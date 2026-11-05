@@ -169,3 +169,26 @@ describe('link health: judging the connection by what requests do', () => {
     expect(isForcedOffline()).toBe(false);
   });
 });
+
+import { isServerDeploying, noteServerStatus, resetLinkHealth as resetLinks } from '../src/monitor/link-health';
+
+describe('server deployment detection', () => {
+  beforeEach(() => resetLinks());
+  it('503 and 502 mean a deployment; any other answer clears it', () => {
+    expect(isServerDeploying()).toBe(false);
+    noteServerStatus(503);
+    expect(isServerDeploying()).toBe(true);
+    noteServerStatus(200);
+    expect(isServerDeploying()).toBe(false);
+    noteServerStatus(502);
+    expect(isServerDeploying()).toBe(true);
+    noteServerStatus(500);
+    expect(isServerDeploying()).toBe(false);
+  });
+  it('a request that never got an answer changes nothing', () => {
+    noteServerStatus(503);
+    noteServerStatus(null);
+    noteServerStatus(undefined);
+    expect(isServerDeploying()).toBe(true);
+  });
+});

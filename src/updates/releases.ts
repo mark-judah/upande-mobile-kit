@@ -25,9 +25,11 @@ export const releasesPageUrl = () => `https://github.com/${getConfig().githubRep
 const releasesApi = () => `https://api.github.com/repos/${getConfig().githubRepo}/releases?per_page=100`;
 const TIMEOUT_MS = 15000;
 
-/** One automatic check per device per day — unauthenticated GitHub calls are
- *  limited to 60/hour per IP, and a site's phones often share one NAT address. */
-export const AUTO_CHECK_INTERVAL_MS = 24 * 60 * 60 * 1000;
+/** One automatic check per device every 15 minutes. Unauthenticated GitHub calls are limited to 60/hour per IP and a
+ *  site's phones often share one NAT address, so the check is a CONDITIONAL request (If-None-Match with the last ETag):
+ *  GitHub answers 304 for "nothing new" and does not count that against the limit. (It used to be once a day, which
+ *  left a phone on the old build for most of a day after a release.) */
+export const AUTO_CHECK_INTERVAL_MS = 15 * 60 * 1000;
 
 export type ApkRelease = {
   version: string;
@@ -94,7 +96,9 @@ export type GithubRelease = {
   assets?: { name?: string; browser_download_url?: string; size?: number }[];
 };
 
-async function fetchReleases(): Promise<GithubRelease[]> {
+type Fetched = { releases: GithubRelease[]; etag: string | null } | { notModified: true };
+
+async function fetchReleases(etag?: string | null): Promise<Fetched> {
   const controller = new AbortController();
   let timedOut = false;
   const timer = setTimeout(() => {
@@ -105,7 +109,7 @@ async function fetchReleases(): Promise<GithubRelease[]> {
   let res: Response;
   try {
     res = await fetch(releasesApi(), {
-      headers: { Accept: 'application/vnd.github+json', 'X-GitHub-Api-Version': '2022-11-28' },
+      headers: { Accept: 'application/vnd.github+json', 'X-GitHub-Api-Version': '2022-11-28', ...(etag ? { 'If-None-Match': etag } : {}) },
       signal: controller.signal,
     });
   } catch {
@@ -116,6 +120,7 @@ async function fetchReleases(): Promise<GithubRelease[]> {
     clearTimeout(timer);
   }
 
+  if (res.status === 304) return { notModified: true };
   // GitHub answers an exhausted quota with 403/429 and a zeroed remaining header.
   if (res.status === 429 || (res.status === 403 && res.headers.get('x-ratelimit-remaining') === '0')) {
     throw new UpdateCheckError(
@@ -131,7 +136,7 @@ async function fetchReleases(): Promise<GithubRelease[]> {
 
   try {
     const json = await res.json();
-    return Array.isArray(json) ? json : [];
+    return { releases: Array.isArray(json) ? json : [], etag: res.headers?.get?.('etag') ?? null };
   } catch {
     throw new UpdateCheckError('failed', "Couldn't read the update information. Try again later.");
   }
@@ -170,28 +175,39 @@ export function summarizeReleases(list: GithubRelease[], current: string): ApkCh
   return { current, latestVersion, apk, available: !!apk && compareVersions(apk.version, current) > 0 };
 }
 
-/** Ask GitHub now. Throws UpdateCheckError; caches a successful result. */
+type CachedCheck = { at: number; repo?: string; etag?: string | null; result: ApkCheck };
+
+async function readCache(): Promise<CachedCheck | null> {
+  try {
+    const raw = await getConfig().storage.get(KitKeys.apkUpdateCheck);
+    return raw ? (JSON.parse(raw) as CachedCheck) : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Ask GitHub now. Throws UpdateCheckError; caches a successful result. When nothing changed since the last answer
+ *  (HTTP 304, free of the rate limit) the cached verdict is kept and only its time is renewed. */
 export async function checkForApk(current: string = INSTALLED_APK_VERSION): Promise<ApkCheck> {
-  const result = summarizeReleases(await fetchReleases(), current);
+  const cached = await readCache();
+  const same = !!cached?.result && cached.result.current === current && cached.repo === getConfig().githubRepo;
+  const fetched = await fetchReleases(same ? cached?.etag : null);
+  const result = 'notModified' in fetched && same && cached ? cached.result : summarizeReleases('releases' in fetched ? fetched.releases : [], current);
+  const etag = 'releases' in fetched ? fetched.etag : cached?.etag ?? null;
   await getConfig()
-    .storage.set(KitKeys.apkUpdateCheck, JSON.stringify({ at: Date.now(), repo: getConfig().githubRepo, result }))
+    .storage.set(KitKeys.apkUpdateCheck, JSON.stringify({ at: Date.now(), repo: getConfig().githubRepo, etag, result }))
     .catch(() => {});
   return result;
 }
 
 /**
- * Check at most once a day, otherwise return the cached verdict. Never throws:
- * a background check that fails leaves the UI as it was.
+ * Check at most every `AUTO_CHECK_INTERVAL_MS`, otherwise return the cached verdict. Never throws:
+ * a background check that fails leaves the UI as it was (and is not retried until the next interval, so a
+ * rate-limited network is not hammered).
  */
 export async function autoCheckForApk(current: string = INSTALLED_APK_VERSION): Promise<ApkCheck | null> {
-  const { storage, githubRepo } = getConfig();
-  let cached: { at: number; repo?: string; result: ApkCheck } | null = null;
-  try {
-    const raw = await storage.get(KitKeys.apkUpdateCheck);
-    if (raw) cached = JSON.parse(raw);
-  } catch {
-    cached = null;
-  }
+  const { githubRepo } = getConfig();
+  const cached = await readCache();
   // A verdict is only meaningful for the build and repo that produced it — after
   // an update it would still claim one is available.
   const usable = !!cached?.result && cached.result.current === current && cached.repo === githubRepo;
@@ -202,6 +218,11 @@ export async function autoCheckForApk(current: string = INSTALLED_APK_VERSION): 
   try {
     return await checkForApk(current);
   } catch {
-    return usable && cached ? cached.result : null;
+    // Remember the failed try so the next interval, not the next foreground, asks again.
+    if (usable && cached) {
+      await getConfig().storage.set(KitKeys.apkUpdateCheck, JSON.stringify({ ...cached, at: Date.now() })).catch(() => {});
+      return cached.result;
+    }
+    return null;
   }
 }

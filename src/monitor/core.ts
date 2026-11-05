@@ -4,7 +4,7 @@ import { getInstallId, waitForLaunchRegistration } from '../devices/install-regi
 import { RingBuffer } from './buffer';
 import { appBuildFacts, collectDeviceFacts, peekDeviceFacts } from './device';
 import { getProbeSite, PING_PATH, recordApiTiming } from './net-stats';
-import { isOwnServer, noteNetworkResult } from './link-health';
+import { isOwnServer, noteNetworkResult, noteServerStatus } from './link-health';
 import {
   bodyToText, byteLength, cutBytes, headersToObject, makeKeyMatcher, redactHeaders, redactUrl,
 } from './redact';
@@ -152,7 +152,10 @@ function ignored(url: string): boolean {
  */
 export function captureApiCall(c: ApiCapture): void {
   // Link health counts calls to the app's own server whether or not crash reporting is on (the person may have turned it off).
-  if (!c.url.includes(PING_PATH) && isOwnServer(c.url, getProbeSite() || getConfig().site)) noteNetworkResult(c.status !== null);
+  if (!c.url.includes(PING_PATH) && isOwnServer(c.url, getProbeSite() || getConfig().site)) {
+    noteNetworkResult(c.status !== null);
+    noteServerStatus(c.status);
+  }
   if (!state.enabled || ignored(c.url)) return;
   if (c.url.includes(PING_PATH)) return; // the latency probe is not one of the app's own calls
   const ok = c.status !== null && c.status < 400 && !c.error;

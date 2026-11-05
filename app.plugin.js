@@ -8,7 +8,7 @@
  *     }]
  *   ]
  *
- * Applies: Gradle build tuning (memory, device-only ABIs), release signing
+ * Applies: the REQUEST_INSTALL_PACKAGES permission the in-app APK installer needs (`"installPermission": false` opts out), Gradle build tuning (memory, device-only ABIs), release signing
  * driven by Gradle properties (no secrets in the repo), the expo-updates URL, and cleartext
  * access (Android usesCleartextTraffic + an iOS ATS exception) when a site is plain http://
  * (`"cleartext": false` opts out; sites come from the props `sites` / `site` / `devSite`
@@ -22,11 +22,13 @@ const withReleaseSigning = require('./plugins/withReleaseSigning');
 const withUpdatesUrl = require('./plugins/withUpdatesUrl');
 const withCleartext = require('./plugins/withCleartext');
 const withNativeModulesCheck = require('./plugins/withNativeModulesCheck');
+const withInstallPermission = require('./plugins/withInstallPermission');
 
 module.exports = function withUpandeMobileKit(config, props = {}) {
   config = withNativeModulesCheck(config, props);
   config = withUpdatesUrl(config, props);
   config = withCleartext(config, props);
+  config = withInstallPermission(config, props);
   config = withBuildTuning(config, props);
   config = withReleaseSigning(config);
   return config;

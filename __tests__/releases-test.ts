@@ -147,8 +147,8 @@ describe('checking GitHub', () => {
     await expect(checkForApk('1.0.0')).rejects.toMatchObject({ kind: 'offline' });
   });
 
-  it('autoCheck asks once a day and then serves the cached verdict', async () => {
-    const f = respond(200, [rel('v1.2.0', [apk('a.apk')])]);
+  it('autoCheck asks every 15 minutes and serves the cached verdict in between', async () => {
+    const f = respond(200, [rel('v1.2.0', [apk('a.apk')])], { etag: '"v1"' });
     globalThis.fetch = f as never;
     const first = await autoCheckForApk('1.0.0');
     const second = await autoCheckForApk('1.0.0');
@@ -156,12 +156,49 @@ describe('checking GitHub', () => {
     expect(second).toEqual(first);
     expect(f).toHaveBeenCalledTimes(1);
 
-    // a day later it asks again
+    // 16 minutes later it asks again, with the last ETag so an unchanged answer costs nothing
     const cached = JSON.parse(store.get(KitKeys.apkUpdateCheck)!);
-    cached.at = Date.now() - 25 * 3600 * 1000;
+    cached.at = Date.now() - 16 * 60 * 1000;
     store.set(KitKeys.apkUpdateCheck, JSON.stringify(cached));
     await autoCheckForApk('1.0.0');
     expect(f).toHaveBeenCalledTimes(2);
+    expect((f.mock.calls[1][1] as { headers: Record<string, string> }).headers['If-None-Match']).toBe('"v1"');
+  });
+
+  it('a 304 keeps the cached verdict and renews its time', async () => {
+    globalThis.fetch = respond(200, [rel('v1.2.0', [apk('a.apk')])], { etag: '"v1"' }) as never;
+    const first = await checkForApk('1.0.0');
+    const before = JSON.parse(store.get(KitKeys.apkUpdateCheck)!).at;
+    await new Promise((r) => setTimeout(r, 5));
+    globalThis.fetch = respond(304, null) as never;
+    const again = await checkForApk('1.0.0');
+    expect(again).toEqual(first);
+    const kept = JSON.parse(store.get(KitKeys.apkUpdateCheck)!);
+    expect(kept.at).toBeGreaterThan(before);
+    expect(kept.etag).toBe('"v1"');
+  });
+
+  it('a new release changes the verdict even though an ETag was stored', async () => {
+    globalThis.fetch = respond(200, [rel('v1.1.0', [apk('a.apk')])], { etag: '"v1"' }) as never;
+    await checkForApk('1.0.0');
+    globalThis.fetch = respond(200, [rel('v1.3.0', [apk('b.apk')]), rel('v1.1.0', [apk('a.apk')])], { etag: '"v2"' }) as never;
+    const next = await checkForApk('1.0.0');
+    expect(next.apk?.version).toBe('1.3.0');
+    expect(JSON.parse(store.get(KitKeys.apkUpdateCheck)!).etag).toBe('"v2"');
+  });
+
+  it('a failed background check serves the old verdict and waits for the next interval', async () => {
+    const f1 = respond(200, [rel('v1.2.0', [apk('a.apk')])]);
+    globalThis.fetch = f1 as never;
+    const first = await autoCheckForApk('1.0.0');
+    const cached = JSON.parse(store.get(KitKeys.apkUpdateCheck)!);
+    cached.at = Date.now() - 20 * 60 * 1000;
+    store.set(KitKeys.apkUpdateCheck, JSON.stringify(cached));
+    const failing = jest.fn().mockRejectedValue(new Error('down'));
+    globalThis.fetch = failing as never;
+    expect(await autoCheckForApk('1.0.0')).toEqual(first);
+    expect(await autoCheckForApk('1.0.0')).toEqual(first);
+    expect(failing).toHaveBeenCalledTimes(1);
   });
 
   it('a verdict for another build is not reused', async () => {

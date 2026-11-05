@@ -3,7 +3,7 @@ import { AppState, Linking, Platform, Pressable, StyleSheet, Text, View } from '
 import { getConfig } from '../config';
 import { hasNativeModule } from '../native-probe';
 import { lastLatencyMs, refreshLatency, getProbeSite } from '../monitor/net-stats';
-import { isForcedOffline } from '../monitor/link-health';
+import { isForcedOffline, isServerDeploying } from '../monitor/link-health';
 import { Ionicons } from '@expo/vector-icons';
 import { useInsets } from './insets';
 import { font, fontSize, radius, shadow, spacing, tint } from './primitives';
@@ -57,8 +57,9 @@ export function ConnectionBanner() {
       if (isOffline(link) || forced) offlineSince ??= now;
       else offlineSince = null;
       // While offline, probe the server every tick so recovery is noticed at once.
-      refreshLatency(getProbeSite() || getConfig().site, { force: forced });
-      setState(bannerState({ offlineSince, now, staleAfterMs: opts.staleAfterMs, latencyMs: lastLatencyMs(), slowMs: opts.slowMs }));
+      // While the server is being deployed, ask it every tick too, so the banner goes the moment it is back.
+      refreshLatency(getProbeSite() || getConfig().site, { force: forced || isServerDeploying() });
+      setState(bannerState({ offlineSince, now, staleAfterMs: opts.staleAfterMs, latencyMs: lastLatencyMs(), slowMs: opts.slowMs, deploying: isServerDeploying() }));
     };
     void tick();
     const id = setInterval(tick, POLL_MS);
@@ -71,6 +72,7 @@ export function ConnectionBanner() {
   if (!opts.enabled || state === 'ok') return null;
   const t = cfg.theme;
   const offline = state === 'offline';
+  const deploying = state === 'deploying';
   const tone = offline ? t.danger : t.warning;
   return (
     <View pointerEvents="box-none" style={[styles.wrap, { paddingTop: insets.top + spacing.xs }]}>
@@ -78,10 +80,15 @@ export function ConnectionBanner() {
         accessibilityLiveRegion="polite"
         style={[styles.bar, { backgroundColor: t.surface, borderColor: tint(tone, 0.45), borderLeftColor: tone }]}
       >
-        <Ionicons name={offline ? 'cloud-offline-outline' : 'speedometer-outline'} size={18} color={tone} />
+        <Ionicons name={offline ? 'cloud-offline-outline' : deploying ? 'construct-outline' : 'speedometer-outline'} size={18} color={tone} />
         <Text style={[styles.text, font(t, 'medium'), { color: t.text }]}>{bannerText(state)}</Text>
-        <Pressable accessibilityRole="button" onPress={openWifiSettings} hitSlop={8} style={styles.actionBox}>
-          <Text style={[styles.action, font(t, 'semiBold'), { color: t.text }]}>Wi-Fi settings</Text>
+        <Pressable
+          accessibilityRole="button"
+          onPress={deploying ? () => refreshLatency(getProbeSite() || getConfig().site, { force: true }) : openWifiSettings}
+          hitSlop={8}
+          style={styles.actionBox}
+        >
+          <Text style={[styles.action, font(t, 'semiBold'), { color: t.text }]}>{deploying ? 'Try again' : 'Wi-Fi settings'}</Text>
         </Pressable>
       </View>
     </View>

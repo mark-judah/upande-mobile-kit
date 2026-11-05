@@ -130,6 +130,7 @@ export function readStaticFacts(): DeviceFacts {
     build_number: cleanBuildNumber(application()?.nativeBuildVersion),
     build_type: (__DEV__ ? 'dev' : Updates.isEmbeddedLaunch ? 'embedded' : 'ota') as DeviceFacts['build_type'],
     device_key: safe(() => androidId()) ?? undefined,
+    android_id: safe(() => androidId()) ?? undefined,
     missing_modules: missingFor(),
   });
   staticFacts = built;

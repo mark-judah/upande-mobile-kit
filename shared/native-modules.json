@@ -8,5 +8,6 @@
   {"pkg": "expo-device", "native": ["ExpoDevice"], "runtime": true, "disables": "Device model and memory unavailable"},
   {"pkg": "expo-battery", "native": ["ExpoBattery"], "runtime": true, "disables": "Battery info unavailable"},
   {"pkg": "expo-localization", "native": ["ExpoLocalization"], "runtime": true, "disables": "Locale and time zone unavailable"},
+  {"pkg": "expo-sensors", "native": ["ExponentAccelerometer"], "runtime": true, "disables": "Shake to hide the Settings button unavailable"},
   {"pkg": "@react-native-async-storage/async-storage", "native": [], "runtime": true, "disables": "Settings not kept between launches"}
 ]

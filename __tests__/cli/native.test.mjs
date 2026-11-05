@@ -44,12 +44,12 @@ const fakeInstall = (root, pkgs, version = '2.0.0') => {
 
 /* ── the one shared list ── */
 
-test('the shared list is the one source: ten modules, the CLI constant is derived from it, file-system probes its real native names', () => {
-  assert.equal(MODULES.length, 10);
+test('the shared list is the one source: eleven modules, the CLI constant is derived from it, file-system probes its real native names', () => {
+  assert.equal(MODULES.length, 11);
   assert.deepEqual(NATIVE_MODULES, MODULES.map((m) => m.pkg));
   assert.deepEqual(NATIVE_MODULES, [
     'expo-updates', 'expo-constants', 'expo-file-system', 'expo-intent-launcher', 'expo-local-authentication',
-    'expo-network', 'expo-device', 'expo-battery', 'expo-localization', '@react-native-async-storage/async-storage',
+    'expo-network', 'expo-device', 'expo-battery', 'expo-localization', 'expo-sensors', '@react-native-async-storage/async-storage',
   ]);
   const fs = MODULES.find((m) => m.pkg === 'expo-file-system');
   assert.deepEqual(fs.native, ['FileSystem', 'ExponentFileSystem']);
@@ -69,7 +69,7 @@ test('moduleStatus/missingModules: declared-but-not-installed and installed-but-
   assert.deepEqual([st['expo-updates'].inPackageJson, st['expo-updates'].installed], [true, true]);
   assert.deepEqual([st['expo-constants'].inPackageJson, st['expo-constants'].installed], [true, false]);
   assert.deepEqual([st['expo-network'].inPackageJson, st['expo-network'].installed], [false, false]);
-  assert.equal(missingModules(root).length, 9);
+  assert.equal(missingModules(root).length, 10);
   // installed only in a parent folder's node_modules (a monorepo): fine
   const mono = mkdtempSync(join(tmpdir(), 'kit-mono-'));
   app({ declared: [], installed: ['expo-device'], parent: mono });
@@ -118,20 +118,20 @@ test('fix installs only what is missing through the injected exec, reports the c
   assert.equal(r.ok, true);
   assert.match(r.text, /run    npx expo install expo-file-system expo-battery/);
   assert.match(r.text, /Changes:\n {2}\+ expo-file-system ~3\.1\.4\n {2}\+ expo-battery ~3\.1\.4/);
-  assert.match(r.text, /✓ all 10 native modules are installed\./);
+  assert.match(r.text, /✓ all 11 native modules are installed\./);
   assert.match(r.text, /These changes need a NEW NATIVE BUILD \(an OTA update will not deliver them\):\n {2}• expo-file-system\n {2}• expo-battery/);
   assert.match(r.text, /Expo Go already includes these modules/);
   // again: nothing to do, nothing run
   const again = fix([], root, { exec: () => assert.fail('must not run') });
   assert.equal(again.ok, true);
-  assert.match(again.text, /all 10 native modules are installed .* Nothing to do\./);
+  assert.match(again.text, /all 11 native modules are installed .* Nothing to do\./);
   assert.doesNotMatch(again.text, /NEW NATIVE BUILD/);
 });
 
 test('fix --align also re-pins the modules already installed and shows the version changes', () => {
   const root = app({ declared: NATIVE_MODULES });
   const r = fix(['--align'], root, { exec: (a) => { assert.equal(a.length, 3 + NATIVE_MODULES.length); fakeInstall(root, ['expo-network'], '9.9.9'); } });
-  assert.match(r.text, /--align: re-pinning 10 installed module\(s\)/);
+  assert.match(r.text, /--align: re-pinning 11 installed module\(s\)/);
   assert.match(r.text, /~ expo-network: 1\.0\.0 -> 9\.9\.9/);
   assert.match(r.text, /NEW NATIVE BUILD[\s\S]*expo-network/);
 });
@@ -154,7 +154,7 @@ test('fix leaves out expo-local-authentication when the host owns the biometric 
   const r = fix([], root, { exec: () => assert.fail('nothing is missing') });
   assert.equal(r.ok, true);
   assert.match(r.text, /expo-local-authentication skipped: your app owns the biometric lock/);
-  assert.match(r.text, /all 9 native modules are installed/);
+  assert.match(r.text, /all 10 native modules are installed/);
 });
 
 test('fix needs a package.json and never prompts or hangs: the default exec runs with CI=1 and a time limit', () => {
@@ -171,18 +171,18 @@ test('verify and doctor mark every missing module as an error naming the one fix
   const root = app({ declared: ['expo-router'] });
   const res = await verify(root, { fetchImpl: async () => ({ status: 204, headers: { get: () => '1' } }) });
   const mods = res.filter((r) => /is not installed in this app/.test(r.msg));
-  assert.equal(mods.length, 10);
+  assert.equal(mods.length, 11);
   assert.ok(mods.every((r) => r.level === 'fail' && /^npx upande-mobile-kit fix/.test(r.fix)), JSON.stringify(mods));
   const doc = await doctorCheck(root);
   const dmods = doc.filter((r) => /is not installed in this app/.test(r.msg));
-  assert.equal(dmods.length, 10);
+  assert.equal(dmods.length, 11);
   assert.ok(dmods.every((r) => r.level === 'fail' && /npx upande-mobile-kit fix/.test(r.msg)));
 
   const host = app({ declared: ['expo-router'], biometricHost: true });
   const hres = await verify(host, { fetchImpl: async () => ({ status: 204, headers: { get: () => '1' } }) });
   const lockLine = hres.find((r) => /expo-local-authentication is not installed/.test(r.msg));
   assert.equal(lockLine.level, 'warn');
-  assert.equal(hres.filter((r) => /is not installed in this app/.test(r.msg) && r.level === 'fail').length, 9);
+  assert.equal(hres.filter((r) => /is not installed in this app/.test(r.msg) && r.level === 'fail').length, 10);
   const dhost = await doctorCheck(host);
   assert.equal(dhost.find((r) => /expo-local-authentication is not installed/.test(r.msg)).level, 'warn');
   // in package.json but not in node_modules is its own wording

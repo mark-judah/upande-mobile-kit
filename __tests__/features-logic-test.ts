@@ -179,3 +179,16 @@ describe('conversation unread tracking', () => {
     expect(seen.T0).toBeUndefined();
   });
 });
+
+describe('deployment banner', () => {
+  const base = { offlineSince: null, now: 1000, staleAfterMs: 25_000, latencyMs: undefined, slowMs: 3000 };
+  it('says so as soon as the server answers 503', () => {
+    expect(bannerState({ ...base, deploying: true })).toBe('deploying');
+    expect(bannerText('deploying')).toMatch(/updated/i);
+    expect(bannerText('deploying')).toMatch(/try again/i);
+  });
+  it('offline still wins, and nothing shows when the server is fine', () => {
+    expect(bannerState({ ...base, offlineSince: 0, now: 30_000, deploying: true })).toBe('offline');
+    expect(bannerState({ ...base, deploying: false })).toBe('ok');
+  });
+});

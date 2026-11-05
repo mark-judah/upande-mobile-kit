@@ -61,6 +61,8 @@ export type DeviceFacts = {
    */
   mac_address?: string;
   serial_number?: string;
+  /** The Android ID (16 hex characters): stable across app updates and reinstalls, new after a factory reset. Android only. */
+  android_id?: string;
   install_id?: string;
   device_key?: string;
   /** Optional native modules this build was compiled without (a rebuild is needed to get them). */

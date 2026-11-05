@@ -38,6 +38,7 @@ export type InstallRow = {
   local_ip?: string | null;
   mac_address?: string | null;
   serial_number?: string | null;
+  android_id?: string | null;
   first_seen: string | null;
   last_seen: string | null;
   launches: number;

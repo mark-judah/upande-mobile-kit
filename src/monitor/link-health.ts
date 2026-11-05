@@ -9,6 +9,24 @@ export const OFFLINE_AFTER_FAILURES = 2;
 
 let failures = 0;
 let forced = false;
+let deploying = false;
+
+/**
+ * A server that is being deployed answers 503 (or 502 while its proxy restarts) to everything. That is not "offline"
+ * (the server did answer), and it clears the moment any other answer comes back.
+ */
+export const DEPLOYING_STATUSES: readonly number[] = [502, 503];
+
+/** Record the HTTP status of an answer from the app's own server. */
+export function noteServerStatus(status: number | null | undefined): void {
+  if (typeof status !== 'number') return;
+  deploying = DEPLOYING_STATUSES.includes(status);
+}
+
+/** True while the server's last answer said it is being deployed (503/502). */
+export function isServerDeploying(): boolean {
+  return deploying;
+}
 
 /** A request to the app's server finished: `true` when the server answered at all (any status), `false` when it was never reached. */
 export function noteNetworkResult(reachedServer: boolean): void {
@@ -40,4 +58,5 @@ export function isOwnServer(url: string, site: string | undefined): boolean {
 export function resetLinkHealth(): void {
   failures = 0;
   forced = false;
+  deploying = false;
 }

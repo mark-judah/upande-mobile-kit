@@ -1,7 +1,7 @@
 /** When to warn about the connection. Pure, so it can be tested without a phone. */
 
 export type LinkSample = { connected: boolean | undefined; reachable: boolean | undefined };
-export type BannerState = 'ok' | 'offline' | 'slow';
+export type BannerState = 'ok' | 'offline' | 'deploying' | 'slow';
 
 /** Offline means the phone says so; an unknown answer is never treated as offline. */
 export function isOffline(s: LinkSample): boolean {
@@ -13,14 +13,24 @@ export function isOffline(s: LinkSample): boolean {
  * so a lift ride or a handover between access points does not flash a banner; a slow server shows when the last
  * round trip took `slowMs` or more.
  */
-export function bannerState(a: { offlineSince: number | null; now: number; staleAfterMs: number; latencyMs: number | undefined; slowMs: number }): BannerState {
+export function bannerState(a: {
+  offlineSince: number | null;
+  now: number;
+  staleAfterMs: number;
+  latencyMs: number | undefined;
+  slowMs: number;
+  /** The server answered 503/502: it is being deployed. Shown at once (the server did answer, so there is nothing to wait out). */
+  deploying?: boolean;
+}): BannerState {
   if (a.offlineSince != null && a.now - a.offlineSince >= a.staleAfterMs) return 'offline';
+  if (a.deploying) return 'deploying';
   if (a.offlineSince == null && a.latencyMs != null && a.latencyMs >= a.slowMs) return 'slow';
   return 'ok';
 }
 
 export function bannerText(state: BannerState): string {
   if (state === 'offline') return 'No connection. Your work is kept; check the Wi-Fi.';
+  if (state === 'deploying') return 'The system is being updated right now. Please try again shortly.';
   if (state === 'slow') return 'The connection is slow. Things may take a while.';
   return '';
 }

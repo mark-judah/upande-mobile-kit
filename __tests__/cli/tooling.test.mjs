@@ -101,7 +101,7 @@ test('doctor flags an unconfigured app and passes a configured one', async () =>
     extra: { otaBaseUrl: 'https://example.com/ota' },
     plugins: ['@upande/mobile-kit'],
   });
-  const dev = { '@upande/mobile-kit': '^0.1.0', 'expo-updates': '*', 'expo-constants': '*', 'expo-file-system': '*', 'expo-router': '*', 'expo-intent-launcher': '*', 'expo-local-authentication': '*', 'expo-network': '*', 'expo-device': '*', 'expo-battery': '*', 'expo-localization': '*', '@react-native-async-storage/async-storage': '*' };
+  const dev = { '@upande/mobile-kit': '^0.1.0', 'expo-updates': '*', 'expo-constants': '*', 'expo-file-system': '*', 'expo-router': '*', 'expo-intent-launcher': '*', 'expo-local-authentication': '*', 'expo-network': '*', 'expo-device': '*', 'expo-battery': '*', 'expo-localization': '*', 'expo-sensors': '*', '@react-native-async-storage/async-storage': '*' };
   writeFileSync(join(dir, 'package.json'), JSON.stringify({ name: 'x', dependencies: dev }));
   for (const m of Object.keys(dev)) {
     mkdirSync(join(dir, 'node_modules', m), { recursive: true });

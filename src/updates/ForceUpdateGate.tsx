@@ -15,12 +15,15 @@ export function ForceUpdateGate({
   busy,
   error,
   onInstall,
+  onBrowser,
   progress,
 }: {
   version: string;
   busy: boolean;
   error: { kind: InstallErrorKind | null; message: string } | null;
   onInstall: () => void;
+  /** Download the APK in the browser instead: the way out when the in-app installer will not open. */
+  onBrowser?: () => void;
   /** 0 to 1 while the installer is being prepared, when known: shown as a bar under the message. */
   progress?: number | null;
 }) {
@@ -53,6 +56,7 @@ export function ForceUpdateGate({
             <KitButton label="Allow installs from this app" variant="outline" onPress={() => void openUnknownAppSourcesSettings()} style={s.full} />
           ) : null}
           <KitButton label={busy ? 'Opening installer…' : 'Install now'} onPress={onInstall} disabled={busy} iconLeft="download-outline" style={s.full} />
+          {onBrowser ? <KitButton label="Download in your browser instead" variant="ghost" onPress={onBrowser} style={s.full} /> : null}
         </View>
       </View>
     </Modal>

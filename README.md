@@ -64,7 +64,7 @@ Most features are on by default. Each one that is not is turned on with a single
 ```
   Your Expo app + this kit
      |        |        |
-     |        |        +-- once a day --------> GitHub Releases   (APK files)
+     |        |        +-- every 15 min ----> GitHub Releases   (APK files)
      |        |
      |        +-- device reports, crash reports -+
      |                                           v
@@ -265,7 +265,7 @@ Each device also reports its kit version, so the [web portal](#the-web-portal) s
 
 On open, the app checks for an over-the-air bundle. If one downloads in the first 20 seconds, the app restarts into it. A later download waits for the next opening, so the app never restarts under someone mid-task. Change the window with `otaOpenWindowMs`.
 
-**On return to the app.** Handhelds are rarely restarted, so checking only at launch would leave them on old code for days. Each time the app comes back to the foreground (at most once every 10 minutes, `foregroundUpdateCheckMinMs`) it looks again: for a new APK (the daily check) and for a new bundle. A bundle found this way is downloaded and the person is **asked**: **Restart now** or **Later**. It is never applied behind their back, and is offered once per run. Turn it off with `otaOnForeground: false`. OTA bundles carry JavaScript only: native changes need an [APK](#apk-updates). How bundles are published is in [Releasing](#releasing).
+**On return to the app.** Handhelds are rarely restarted, so checking only at launch would leave them on old code for days. Each time the app comes back to the foreground (at most once every 10 minutes, `foregroundUpdateCheckMinMs`) it looks again, and also every 15 minutes while the app stays open: for a new APK and for a new bundle. The APK check asks GitHub with the last ETag, so "nothing new" is a free `304` that does not count against GitHub's rate limit. A bundle found this way is downloaded and the person is **asked**: **Restart now** or **Later**. It is never applied behind their back, and each new bundle is offered once. Turn it off with `otaOnForeground: false`. OTA bundles carry JavaScript only: native changes need an [APK](#apk-updates). How bundles are published is in [Releasing](#releasing).
 
 ### APK updates
 
@@ -599,6 +599,7 @@ Every device snapshot (and the register) also carries what identifies the phone:
 | Fact | Where it comes from | When it is there |
 |---|---|---|
 | **Build number** | The installed app's build (the Android `versionCode`), from `expo-application` | Always |
+| **Device ID** | The **Android ID** (16 hex characters), read from React Native's own platform module, so no extra package. Android only | Always on Android. Unlike the serial number and MAC address it is not hidden from apps. It stays the same across app updates and reinstalls, and changes after a factory reset, so it is the identifier to link a phone to an asset. (`device_key`, a SHA-256 of it, is what the register matches rows on.) |
 | **Device IP** | The address the phone has on its own network, from the Wi-Fi details (`@react-native-community/netinfo`) or `expo-network` | When connected. This is the phone's own address; the server separately records the address it saw the phone on (**IP seen**) |
 | **MAC address** and **serial number** | `deviceInfo` in the config, or `react-native-device-info` if the app has it | **Rarely on a stock phone.** Android 10 and later, and iOS, keep both from apps and hand back placeholders (`02:00:00:00:00:00`, `unknown`). A placeholder is not a fact, so it is dropped and the field stays empty |
 
@@ -733,7 +734,7 @@ Unhandled errors and render errors are saved on the phone, so a report filed aft
 
 ### Connection banner
 
-A banner appears when the phone has been offline for 25 seconds, or when the last round trip to your server took 3 seconds or more.
+A banner appears when the phone has been offline for 25 seconds, when the last round trip to your server took 3 seconds or more, or **at once when the server answers 503 or 502**, which is what a deployment looks like from the phone: *"The system is being updated right now. Please try again shortly."* with a **Try again** button. While it shows, the kit asks the server every few seconds and the banner goes the moment it answers normally again.
 
 **It does not trust Android alone.** Some handhelds (the Honeywell EDA52, for one) keep reporting "connected" after the Wi-Fi radio has stopped carrying data. So the kit also watches what really happens: after **two requests to your server in a row that never got an answer**, the phone counts as offline whatever Android says, and the kit probes the server every few seconds so a single answer clears it. Only your own server counts; a failing third-party call does not. It has a **Wi-Fi settings** shortcut, because an app cannot switch Wi-Fi itself on modern Android. Tune it with `connectionBanner: { staleAfterSec: 25, slowMs: 3000 }` or turn it off with `connectionBanner: false`.
 
@@ -875,7 +876,7 @@ These are never required and never nag; each switches on one feature when it is 
 | `expo-notifications` | [Reply notifications](#reply-notifications) (also needs an Expo project id and, on Android, Firebase) |
 | `expo-secure-store` | The [fingerprint sign-in vault](#fingerprint-sign-in-vault) |
 | `@react-native-community/netinfo` | Wi-Fi name, signal, link speed and band ([Network and performance](#network-and-performance)) and the phone's own IP address |
-| `expo-sensors` | [Shake to hide the floating button](#the-floating-button) |
+| `expo-sensors` | [Shake to hide the floating button](#the-floating-button). **Required by the build check**: without it the shake does nothing, which is easy to miss. `npx upande-mobile-kit fix` installs it; it needs a new native build |
 | `react-native-device-info` | The MAC address and serial number, where the phone allows ([Device identifiers](#device-identifiers)) |
 
 Install with `npx expo install <package>` and make a new native build (an OTA update cannot add native code).
@@ -933,7 +934,7 @@ npx upande-mobile-kit init --yes --site https://your.site --dev-site http://loca
 | `/mobile-kit/settings` shows another screen | A file in your app serves that path | `verify` names it. Rename or remove it |
 | No OTA update arrives | The app is not registered and enabled on the production site; the runtime does not match; Pages is off for a private repo; the site cannot be reached | Run `verify --site <production>`. On the server, run `register_app`. Check the release's runtime equals the app's `expo.runtimeVersion` |
 | OTA arrives but the app does not restart into it | The bundle finished downloading more than 20 s after opening | It applies on the next opening. Raise `otaOpenWindowMs` if you want |
-| No APK offer | The repo's releases are private, the latest APK is not newer, the check ran in the last 24 hours, or the user set downloads to Off or the phone is not on Wi-Fi | Check the Releases page; use Settings > Check for updates |
+| No APK offer | The repo's releases are private, the latest APK is not newer, the check ran in the last 15 minutes, or the user set downloads to Off or the phone is not on Wi-Fi | Check the Releases page; use Settings > Check for updates |
 | The APK will not install over the old one | Signed with a different key (debug versus your key), or a lower `versionCode` | Sign with one key. Set `versionCodeBase` above the old build's `versionCode` |
 | A release has no APK | A patch release (same runtime) is OTA only, by design | Put `[apk]` in a commit message, tick `build_apk` when you run the workflow by hand, or use `bump: minor`. See [Releasing](#releasing) |
 | `Run workflow` has no `build_apk` box | The workflow file is from an older kit | `npx upande-mobile-kit init --update-workflow`, then commit and push |
@@ -969,7 +970,7 @@ npx upande-mobile-kit init --yes --site https://your.site --dev-site http://loca
 - The fingerprint vault keeps the sign-in in the phone's secure storage and nowhere else.
 - The Android ID is stored only as a hash. The server also records the IP address it sees. It never records location.
 - Only System Managers can read the device register and the web portal.
-- The kit's own server calls to GitHub are unauthenticated. GitHub allows 60 per hour per IP address. Each phone checks once a day.
+- The kit's own server calls to GitHub are unauthenticated. GitHub allows 60 per hour per IP address. Each phone checks every 15 minutes, with a conditional request (an unchanged answer is a `304` that GitHub does not count).
 
 ## For maintainers
 

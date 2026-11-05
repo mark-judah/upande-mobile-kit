@@ -11,6 +11,7 @@ import {
 import { AppState } from 'react-native';
 import * as Updates from 'expo-updates';
 import {
+  AUTO_CHECK_INTERVAL_MS,
   autoCheckForApk,
   checkForApk,
   UpdateCheckError,
@@ -153,43 +154,52 @@ export function UpdateProvider({ children }: { children: ReactNode }) {
     applyOtaOnOpen();
   }, [isUpdatePending, applyOtaOnOpen]);
 
-  // Coming back to the foreground: look again. Handhelds are rarely restarted, so launch-only checks leave them on old
-  // code for days. The APK check throttles itself to once a day; a JS bundle found here is offered, never forced.
-  const foregroundOffered = useRef(false);
+  // Looking for a newer build while the app is open: when it comes back to the foreground and then every 15 minutes
+  // (a handheld stays open all shift, so launch-only checks leave it on old code for days). The APK check asks GitHub
+  // with the last ETag, so "nothing new" costs nothing; a JS bundle found here is offered, never forced. Each new
+  // bundle is offered once, so a second release the same day is offered too.
+  const offeredOta = useRef<string | null>(null);
+  const checkForUpdatesNow = useCallback(async () => {
+    autoCheckForApk().then(
+      (result) => {
+        if (result) setCheck((cur) => (cur && cur.available === result.available && cur.latestVersion === result.latestVersion ? cur : result));
+      },
+      () => {},
+    );
+    if (__DEV__ || !Updates.isEnabled || getConfig().otaOnForeground === false) return;
+    try {
+      const found = await Updates.checkForUpdateAsync();
+      if (!found.isAvailable) return;
+      const fetched = await Updates.fetchUpdateAsync();
+      const id = (fetched as { manifest?: { id?: string } }).manifest?.id ?? 'new';
+      if (!fetched.isNew || offeredOta.current === id) return;
+      offeredOta.current = id;
+      ui().showDialog(
+        'Update ready',
+        'A new version was downloaded. Restart now to use it?',
+        [
+          { text: 'Later', style: 'cancel' }, // the bundle is already downloaded: it applies the next time the app opens
+          { text: 'Restart now', onPress: () => void Updates.reloadAsync() },
+        ],
+        { name: 'cloud-download-outline', tone: 'success' },
+      );
+    } catch {
+      // Nothing to tell the person; the next check tries again.
+    }
+  }, []);
   useEffect(() => {
     const allow = createForegroundGate(getConfig().foregroundUpdateCheckMinMs ?? DEFAULT_FOREGROUND_CHECK_MS);
     const sub = AppState.addEventListener('change', (state) => {
-      if (state !== 'active' || !allow()) return;
-      autoCheckForApk().then(
-        (result) => {
-          if (result) setCheck((cur) => (cur && cur.available === result.available && cur.latestVersion === result.latestVersion ? cur : result));
-        },
-        () => {},
-      );
-      if (__DEV__ || !Updates.isEnabled || getConfig().otaOnForeground === false || foregroundOffered.current) return;
-      (async () => {
-        try {
-          const found = await Updates.checkForUpdateAsync();
-          if (!found.isAvailable) return;
-          const fetched = await Updates.fetchUpdateAsync();
-          if (!fetched.isNew || foregroundOffered.current) return;
-          foregroundOffered.current = true;
-          ui().showDialog(
-            'Update ready',
-            'A new version was downloaded. Restart now to use it?',
-            [
-              { text: 'Later', style: 'cancel' }, // the bundle is already downloaded: it applies the next time the app opens
-              { text: 'Restart now', onPress: () => void Updates.reloadAsync() },
-            ],
-            { name: 'cloud-download-outline', tone: 'success' },
-          );
-        } catch {
-          // Nothing to tell the person; the next return to the app tries again.
-        }
-      })();
+      if (state === 'active' && allow()) void checkForUpdatesNow();
     });
-    return () => sub.remove();
-  }, []);
+    const timer = setInterval(() => {
+      if (AppState.currentState === 'active') void checkForUpdatesNow();
+    }, AUTO_CHECK_INTERVAL_MS);
+    return () => {
+      sub.remove();
+      clearInterval(timer);
+    };
+  }, [checkForUpdatesNow]);
 
   // An APK downloaded before (in this run or an earlier one) is offered for
   // install straight away instead of being fetched again.
@@ -314,12 +324,26 @@ export function UpdateProvider({ children }: { children: ReactNode }) {
   const gateOpen = forced && !!gateApk && downloaded === gateApk.version && canInstallInApp();
   const onGateInstall = useCallback(async () => {
     setLaunching(true);
+    // The APK is already on disk when the installer is about to open (the first tap downloads it).
+    const toInstaller = !!ready.current;
     try {
-      await install(check);
+      const done = await install(check);
+      // Android replaces this app when the install finishes, so still being here after the installer was opened means it
+      // was cancelled, or never appeared (the "Install unknown apps" switch is off for this app). Say so, with the ways on.
+      if (done && toInstaller) {
+        setInstallError({
+          kind: 'blocked',
+          message: "The installer didn't finish. If nothing appeared, allow this app to install unknown apps, or download the update in your browser instead.",
+        });
+      }
     } finally {
       setLaunching(false);
     }
   }, [install, check]);
+  const onGateBrowser = useCallback(() => {
+    const apk = check?.apk;
+    if (apk) openInBrowser(apk.downloadUrl).catch(() => setInstallError({ kind: null, message: 'Could not open the download link.' }));
+  }, [check]);
 
   useEffect(() => {
     const apk = check?.available ? check.apk : null;
@@ -383,7 +407,7 @@ export function UpdateProvider({ children }: { children: ReactNode }) {
     <UpdateContext.Provider value={value}>
       {children}
       {gateOpen ? (
-        <ForceUpdateGate version={gateApk?.version ?? ''} busy={launching} error={installError} onInstall={() => void onGateInstall()} />
+        <ForceUpdateGate version={gateApk?.version ?? ''} busy={launching} error={installError} onInstall={() => void onGateInstall()} onBrowser={onGateBrowser} />
       ) : null}
     </UpdateContext.Provider>
   );
