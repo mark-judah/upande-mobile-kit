@@ -333,6 +333,7 @@ jobs:
         run: rm -rf android version.json ota .ota-export
 
       - name: Commit and tag the version bump
+        id: bump
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -353,7 +354,13 @@ jobs:
           git tag -a "${{ steps.version.outputs.tag }}" \
             -m "${{ inputs.app-name }} ${{ steps.version.outputs.version }}"
           git push origin HEAD:${{ github.ref_name }}
-          git push origin "${{ steps.version.outputs.tag }}"
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          # GitHub can refuse a tag pushed with the workflow token (a release whose history includes an edit to a
+          # file under .github/workflows is rejected without the `workflows` permission, as "remote rejected (failed)").
+          # That must not lose the release: the release step below creates the tag itself, through the API, at this commit.
+          if ! git push origin "${{ steps.version.outputs.tag }}"; then
+            echo "::warning::Pushing the tag ${{ steps.version.outputs.tag }} was rejected; the GitHub Release step will create it instead."
+          fi
 
       # Whoever downloads the APK is the one who has to trust it, so the signing
       # status belongs in the release body, not just in the build log.
@@ -375,6 +382,7 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.version.outputs.tag }}
+          target_commitish: ${{ steps.bump.outputs.sha }}
           name: ${{ inputs.app-name }} ${{ steps.version.outputs.version }}
           body_path: RELEASE_NOTES.md
           files: |
@@ -388,6 +396,7 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.version.outputs.tag }}
+          target_commitish: ${{ steps.bump.outputs.sha }}
           name: ${{ inputs.app-name }} ${{ steps.version.outputs.version }} (OTA)
           body_path: RELEASE_NOTES.md
           # An OTA release has no APK: keep "latest" on the newest APK release so
