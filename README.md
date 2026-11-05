@@ -276,7 +276,9 @@ On open, the app checks for an over-the-air bundle. If one downloads in the firs
 
 ### Forced install
 
-Once a newer APK is on the phone, an **Update required** dialog covers the whole app. It has one button, **Install now**, and the Android back button does nothing. If the person cancels Android's installer they land on the dialog again. If Android has not yet allowed installs from this app, the dialog offers a shortcut to that setting.
+Once a newer APK is on the phone, an **Update required** dialog covers the whole app. It has one button, **Install now**, and the Android back button does nothing. If the person cancels Android's installer they land on the dialog again. If Android has not yet allowed installs from this app, the dialog offers a shortcut to that setting. If the installer closes without installing (or never appears), the dialog says so and keeps **Download in your browser instead** one tap away, so the person is never stuck behind it.
+
+**The install permission.** Opening Android's installer needs `android.permission.REQUEST_INSTALL_PACKAGES` in the manifest. Without it Android 8+ never offers the "Install unknown apps" switch for the app and tapping Install does nothing, with no error. The config plugin now adds it for you (`{ "installPermission": false }` opts out). It is a manifest entry, so it reaches a phone only with a **new APK**; until then an app built without it can only update through the browser button.
 
 On by default. Set `apk: { force: false }` for a softer prompt with an **Install now / Later** choice that asks again next time.
 
