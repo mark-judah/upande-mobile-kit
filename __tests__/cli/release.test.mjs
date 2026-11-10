@@ -81,7 +81,8 @@ function repo(expo = {}, pkgExtra = {}) {
   git('commit', '-qm', 'chore: init');
   git('tag', 'v1.2.7');
   const commit = (subject, body = '') => {
-    writeFileSync(join(dir, `f${Math.random()}`), 'x');
+    mkdirSync(join(dir, 'src'), { recursive: true });
+    writeFileSync(join(dir, 'src', `f${Math.random()}.ts`), 'x');
     git('add', '-A');
     git('commit', '-qm', body ? `${subject}\n\n${body}` : subject);
   };

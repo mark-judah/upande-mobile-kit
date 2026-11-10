@@ -321,6 +321,30 @@ Merging (pushing) to your release branch starts the workflow, except for changes
 
 A release takes about 14 minutes when it builds an APK. The workflow times out after 45 minutes, and runs queue behind each other. Do not start a commit message with `chore(release):`; the workflow ignores those to avoid loops.
 
+### The kit decides APK or OTA for you
+
+You do not have to remember a marker. Every release checks two things, and builds an APK on a **new runtime** (a minor release) when either says so:
+
+1. **The native surface.** Each dependency that carries native code (an `android/` or `ios/` folder, an Expo module or a config plugin) is recorded with its installed version, plus the kit's own native modules and plugins, the `patches/` folder and the native fields of `app.json` (name, scheme, icon, splash, plugins, `android`, `ios`). The record is saved in `app.json` (`expo.extra.mobileKit.nativeBaseline`) whenever an APK is built. If what is installed now differs, the release is an APK. This catches a kit upgrade that brings a new native module, and libraries no name pattern would catch. It needs `node_modules`, which the workflow has after `npm ci`.
+2. **The files that changed since the last APK.** List folders or files, as globs, in `app.json`:
+
+```json
+{ "expo": { "extra": { "mobileKit": { "release": {
+  "apk": ["modules/**", "assets/images/icon.png"],
+  "ota": ["assets/fonts/**", "content/**"]
+} } } } }
+```
+
+| A changed file that matches | Result |
+|---|---|
+| `apk` (and the built-in `android/**`, `ios/**`, `patches/**`, `plugins/**`, `eas.json`) | APK |
+| `ota` (and the built-in `app/**`, `src/**`, `__tests__/**`, `docs/**`, `backend/**`, `scripts/**`, `.github/**`, `*.md`) | OTA is fine |
+| neither | **APK, to be safe.** The reason names the file; list it under `ota` (or `apk`) so it stops asking |
+
+`apk` wins over `ota` (so `"apk": ["src/native/**"]` works even though `src/**` is JS-only). `package.json`, the lock files and `app.json` are judged by rule 1, not by name.
+
+Both rules compare with the **last APK**, not the last release. A native change that once slipped out as an OTA is still caught by the next release, whatever it contains. The first release after you upgrade records the baseline and forces nothing; it assumes the APK on phones matches. `[ota]` in the newest commit still switches the automatic APK off for that release (the debt stays and is caught by the next one). Preview the decision with `npx upande-mobile-kit version` (see [Preview a release before you push](#preview-a-release-before-you-push)).
+
 ### Why a patch release has no APK
 
 This is by design, not an error. Versions are `x.y.z` and the runtime is `x.y`. An OTA bundle can only reach phones that have the same runtime, and a normal merge only moves `z` (`1.2.7` to `1.2.8`), so the native part is unchanged and there is nothing new to build. Only the JavaScript is shipped, and phones with a 1.2 build get it the next time the app opens. The GitHub Release is titled "(OTA)" and has no APK file. A release gets an APK when the runtime changes, or when you ask for one with a commit marker or the `build_apk` input.
@@ -937,7 +961,7 @@ npx upande-mobile-kit init --yes --site https://your.site --dev-site http://loca
 | OTA arrives but the app does not restart into it | The bundle finished downloading more than 20 s after opening | It applies on the next opening. Raise `otaOpenWindowMs` if you want |
 | No APK offer | The repo's releases are private, the latest APK is not newer, the check ran in the last 15 minutes, or the user set downloads to Off or the phone is not on Wi-Fi | Check the Releases page; use Settings > Check for updates |
 | The APK will not install over the old one | Signed with a different key (debug versus your key), or a lower `versionCode` | Sign with one key. Set `versionCodeBase` above the old build's `versionCode` |
-| A release has no APK | A patch release (same runtime) is OTA only, by design | Put `[apk]` in a commit message, tick `build_apk` when you run the workflow by hand, or use `bump: minor`. See [Releasing](#releasing) |
+| A release has no APK | Nothing in it needed one: no native dependency, plugin, patch or `apk`-listed file changed, and every changed file is JS-only | Check the reason in the run summary. If a file should have needed an APK, add it to `release.apk` in `app.json`. Otherwise put `[apk]` in a commit message, tick `build_apk` when you run the workflow by hand, or use `bump: minor`. See [Releasing](#releasing) |
 | `Run workflow` has no `build_apk` box | The workflow file is from an older kit | `npx upande-mobile-kit init --update-workflow`, then commit and push |
 | The workflow fails at `npm ci` | `package-lock.json` is missing or out of date | Run `npm install` and commit the lockfile |
 | The workflow fails pushing the version commit | The release branch is protected | Allow `github-actions[bot]` to push to it |

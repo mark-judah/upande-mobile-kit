@@ -1,7 +1,9 @@
 name: Release
 
 # Calls the shared release workflow of @upande/mobile-kit (pinned to the kit version that wrote this file).
-# Every push to the branch below is a release. A commit message can ask for more:
+# Every push to the branch below is a release. The kit decides APK or OTA itself (native dependencies, the kit's
+# native modules and plugins, patches, and the folders listed under expo.extra.mobileKit.release in app.json),
+# so a marker is only needed to force something. A commit message can ask for more:
 #   [apk]     also build and attach an APK (same runtime, OTA keeps working)
 #   [native]  native code changed: new runtime and an APK
 #   [major]   major version and an APK

@@ -17,6 +17,7 @@
 import { execFileSync } from 'node:child_process';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
+import { classifyFiles, fileReasons, nativeSurface, releaseLists, surfaceDiff } from './release-rules.mjs';
 import {
   decideRelease,
   nativeChanges,
@@ -88,9 +89,20 @@ export function run(argv, root = process.cwd()) {
     }
   };
   const nativeFiles = tag ? git('diff', '--name-only', tag, 'HEAD', '--', 'android', 'ios').split('\n').filter(Boolean) : [];
-  const nativeChanged = tag
-    ? nativeChanges({ before: { pkg: showAt('package.json'), app: showAt('app.json') }, after: { pkg, app: appConfig }, nativeFiles })
-    : [];
+  // The rules that need no marker: what the files changed since the LAST APK say, and whether the native surface (native
+  // dependencies, the kit's plugins, patches, native app.json fields) still equals the one recorded at that APK. Compared
+  // with the last APK rather than the last release, so a native change that once went out as an OTA is not forgotten.
+  const mk = appConfig.expo.extra?.mobileKit ?? {};
+  const apkTag = mk.apkTag && git('rev-parse', '--verify', '--quiet', `refs/tags/${mk.apkTag}`) ? mk.apkTag : tag;
+  const sinceApk = apkTag ? git('diff', '--name-only', apkTag, 'HEAD').split('\n').filter(Boolean) : [];
+  const surface = nativeSurface(root, pkg, appConfig);
+  // Without node_modules (no surface to read) the older name-based check stands in for it.
+  const nativeChanged =
+    tag && !surface
+      ? nativeChanges({ before: { pkg: showAt('package.json'), app: showAt('app.json') }, after: { pkg, app: appConfig }, nativeFiles })
+      : [];
+  nativeChanged.push(...fileReasons(classifyFiles(sinceApk, releaseLists(appConfig))));
+  if (surface && mk.nativeBaseline) nativeChanged.push(...surfaceDiff(mk.nativeBaseline, surface));
   const setTo = flagValue('set');
   if (setTo) parseVersion(setTo);
   const decision = decideRelease({
@@ -118,6 +130,13 @@ export function run(argv, root = process.cwd()) {
     // build, so this is what keeps a 1.1.x update off a 1.0.x APK.
     appConfig.expo.runtimeVersion = runtimeVersion;
     if (Number.isFinite(expoSdk)) appConfig.expo.extra = { ...appConfig.expo.extra, runtimeSdk: expoSdk };
+    // Remember the native surface the APK carries. It is saved by every APK release, and once by the first release that has
+    // none (the installed APK is assumed to match), so later releases are compared with a real baseline.
+    if (surface && (kind === 'apk' || !mk.nativeBaseline)) {
+      const next = { ...mk, nativeBaseline: surface };
+      if (kind === 'apk') next.apkTag = `v${version}`;
+      appConfig.expo.extra = { ...appConfig.expo.extra, mobileKit: next };
+    }
     // A static-hosting update URL carries the runtime in its path, so it moves with it.
     const updates = appConfig.expo.updates;
     if (updates?.url?.includes('/ota/android/')) {

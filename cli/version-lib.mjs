@@ -184,6 +184,12 @@ export function decideRelease({ bumpFlag, setTo, apkFlag, commits, sdkChanged, n
     why.push('the Expo SDK changed, and a bundle from another SDK cannot go over the air');
   }
   const autoApk = nativeChanged.length > 0 && !marks.otaCancelled;
+  // Native code the installed APKs lack must never reach them as a JS update, so it starts a new runtime (a minor
+  // release). An APK on the SAME runtime is only for a release with no native change (`[apk]`, or --apk).
+  if (autoApk && bump === 'patch' && !setTo) {
+    bump = 'minor';
+    why.push('native code changed, so this release starts a new runtime (phones on the old one never get this JS)');
+  }
   const forceApk = Boolean(apkFlag || marks.apk || autoApk);
   if (apkFlag) why.push('--apk');
   else if (marks.apk) why.push(`commit ${marks.apk} contains [apk]`);
