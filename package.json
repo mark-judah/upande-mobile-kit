@@ -16,6 +16,7 @@
     "app.plugin.js",
     ".github/workflows/release.yml",
     "README.md",
+    "docs",
     "LICENSE",
     "!cli/check-shipped.mjs"
   ],
