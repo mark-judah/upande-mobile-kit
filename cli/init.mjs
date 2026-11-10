@@ -10,11 +10,14 @@
  *   --backend-repo URL       git URL of the backend app (default: the constant in cli/constants.mjs)
  *   --kit-repo owner/repo    where the reusable release workflow lives (default: constants.mjs)
  *   --name "My App"          Mobile App record name (default: app.json expo.name)
- *   --repo owner/repo        GitHub repo that publishes releases (default: git origin)
- *   --ota-base-url URL       where JS bundles are served (default: GitHub Pages of --repo)
+ *   --repo owner/repo        the app's source repo on GitHub (default: git origin)
+ *   --release-repo owner/repo  a separate PUBLIC repo that receives the releases (APKs, OTA bundles on its Pages), for a
+ *                            private source repo or one app per branch; phones read it, tags here become <branch>/vX.Y.Z
+ *   --ota-base-url URL       where JS bundles are served (default: GitHub Pages of --release-repo, else of --repo)
  *   --apk-name my_app        APK file-name stem (default: snake_case of --name)
  *   --branch main            release branch (default: current branch)
- *   --update-workflow        rewrite ONLY .github/workflows/release.yml to this kit's version (keeps app-name, apk-name, branch)
+ *   --update-workflow        rewrite ONLY .github/workflows/release.yml to this kit's version (keeps app-name, apk-name, branch,
+ *                            release-repo; --release-repo sets or, with '', removes it)
  *   --settings-route /path   rarely needed: another path for the kit's Settings page (default /mobile-kit/settings)
  *   --devices-route /path    rarely needed: another path for the kit's Devices page (default /mobile-kit/devices)
  *   --biometric host|kit     who owns the biometric lock (default: detected; `host` when the app already locks itself)
@@ -29,9 +32,9 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { buildAdapters, detectHost, detectHostBiometric, STAND_IN_EFFECT } from './adapters.mjs';
 import { backupNote, createBackup } from './backup.mjs';
-import { updateWorkflow } from './workflow.mjs';
+import { callerReleaseRepo, renderCaller, updateWorkflow, withReleaseRepo, WORKFLOW_FILE } from './workflow.mjs';
 import { ensureGitignore, gitignoreNote } from './gitignore.mjs';
-import { BACKEND_APP, BACKEND_REPO_URL, isPlaceholder, KIT_REPO, NATIVE_MODULES, WORKFLOW_REF } from './constants.mjs';
+import { BACKEND_APP, BACKEND_REPO_URL, defaultOtaBaseUrl, isPlaceholder, KIT_REPO, NATIVE_MODULES, REPO_RE, WORKFLOW_REF } from './constants.mjs';
 import { FIX_COMMAND, METRO_NOTE } from './native-modules.mjs';
 import { installNativeModules } from './native-install.mjs';
 import {
@@ -71,11 +74,7 @@ export const snake = (s) =>
     .replace(/[^a-z0-9]+/g, '_')
     .replace(/^_+|_+$/g, '');
 
-/** Where the JS bundles are served from when nothing else is said: the repo's GitHub Pages. */
-export const defaultOtaBaseUrl = (repo) => {
-  const [owner, name] = repo.split('/');
-  return `https://${owner.toLowerCase()}.github.io/${name}/ota`;
-};
+export { defaultOtaBaseUrl };
 
 /** The manifest endpoint the phones ask (the backend proxies it with the headers expo-updates needs). */
 export const manifestUrl = (site, appName) =>
@@ -163,6 +162,21 @@ export function openBlock({ route, file }) {
   ].join('\n');
 }
 
+/** Replace the `githubRepo:` line of a generated src/mobile-kit.ts; null when there is none. */
+export function updateGithubRepoLine(source, repo) {
+  const re = /^([ \t]*githubRepo:[ \t]*)['"][^'"]*['"]/m;
+  return re.test(source) ? source.replace(re, (_m, pre) => `${pre}'${repo}'`) : null;
+}
+
+/** What only a person can do for a release repository (GitHub will not let a workflow create it or its token). */
+export function releaseRepoSteps({ repo, releaseRepo }) {
+  return [
+    `  4. Create ${releaseRepo} as a PUBLIC repository (with a README, so it has a branch) before the first release.`,
+    `  5. Create a fine-grained token with Contents: read and write on ${releaseRepo} only, and save it in ${repo} as the`,
+    '     Actions secret RELEASE_REPO_TOKEN. Without it the release stops at its first step and says so.',
+  ];
+}
+
 const quote = (a) => (/^[\w@%+=:,./-]+$/.test(a) ? a : `'${a.replace(/'/g, `'\\''`)}'`);
 export const commandLine = (argv) => argv.map(quote).join(' ');
 
@@ -192,7 +206,14 @@ export function run(argv, root = process.cwd(), { exec, lastSteps = true, wiring
   const apkName = flag('apk-name') ?? snake(name);
   const branch = flag('branch') ?? (sh(root, 'rev-parse', '--abbrev-ref', 'HEAD') || 'main');
   const kitRepo = flag('kit-repo') ?? KIT_REPO;
-  const otaBaseUrl = flag('ota-base-url') ?? defaultOtaBaseUrl(repo);
+  // A separate public repo for the releases: what the phones and the server read instead of the source repo.
+  // Given now (--release-repo; '' removes it), else the one the existing release workflow already names.
+  const releaseRepoFlag = flag('release-repo');
+  const releaseRepo = releaseRepoFlag ?? callerReleaseRepo(root)?.releaseRepo ?? '';
+  if (releaseRepo && !REPO_RE.test(releaseRepo)) throw new Error('--release-repo must look like owner/repo, e.g. acme/my-app-releases');
+  if (releaseRepo && releaseRepo.toLowerCase() === repo.toLowerCase()) throw new Error('--release-repo must be a different repo from the source repo (leave it out to publish to the source repo).');
+  const publishRepo = releaseRepo || repo;
+  const otaBaseUrl = flag('ota-base-url') ?? defaultOtaBaseUrl(publishRepo);
 
   // The kit's two pages live under /mobile-kit/, so nothing of the app's collides. A page already served there
   // (it should not happen) is the only thing that stops us, before anything is written.
@@ -228,7 +249,7 @@ export function run(argv, root = process.cwd(), { exec, lastSteps = true, wiring
   const fill = (s) =>
     s
       .replaceAll('__APP_NAME__', name)
-      .replaceAll('__GITHUB_REPO__', repo)
+      .replaceAll('__GITHUB_REPO__', publishRepo)
       .replaceAll('__APK_NAME__', apkName)
       .replaceAll('__SITE_VALUE__', siteValue(site, devSite))
       .replaceAll('__SITE_NOTE__', siteNote(devSite))
@@ -253,6 +274,17 @@ export function run(argv, root = process.cwd(), { exec, lastSteps = true, wiring
   put(settingsFile, tpl('settings-route.tsx'));
   put(devicesFile, tpl('devices-route.tsx'));
   put('src/mobile-kit.ts', fill(tpl('mobile-kit.ts')));
+  // An existing config follows a release repo given now: the phones must look where the releases go.
+  if (releaseRepoFlag !== undefined && !force) {
+    const cfgPath = join(root, 'src/mobile-kit.ts');
+    const cur = existsSync(cfgPath) ? readFileSync(cfgPath, 'utf8') : '';
+    const next = updateGithubRepoLine(cur, publishRepo);
+    if (next && next !== cur) {
+      backup.save('src/mobile-kit.ts');
+      writeFileSync(cfgPath, next);
+      log.push(`edit   src/mobile-kit.ts (githubRepo is now ${publishRepo}${releaseRepo ? ', the release repository' : ''})`);
+    }
+  }
   // An existing config that still names the old kit pages: drop those now-redundant lines (other values stay).
   {
     const cfgPath = join(root, 'src/mobile-kit.ts');
@@ -270,7 +302,18 @@ export function run(argv, root = process.cwd(), { exec, lastSteps = true, wiring
   if (ownSettings.length || legacy.length) {
     log.push(`note   ${ownSettings.length ? `your /settings is untouched (${ownSettings[0].file})` : 'nothing of yours uses /settings'}; the kit lives at ${routes.settings}`);
   }
-  put('.github/workflows/release.yml', fill(tpl('release-caller.yml')).replace('branches: [main]', `branches: [${branch}]`));
+  const wfExisted = existsSync(join(root, WORKFLOW_FILE));
+  put(WORKFLOW_FILE, renderCaller({ kitRepo, ref: WORKFLOW_REF, appName: name, apkName, branch, releaseRepo }));
+  if (releaseRepoFlag !== undefined && wfExisted && !force) {
+    const cur = readFileSync(join(root, WORKFLOW_FILE), 'utf8');
+    const next = withReleaseRepo(cur, releaseRepo);
+    if (next === null) log.push(`note   ${WORKFLOW_FILE} is in an old shape: run \`npx upande-mobile-kit init --update-workflow --release-repo ${releaseRepo}\``);
+    else if (next !== cur) {
+      backup.save(WORKFLOW_FILE);
+      writeFileSync(join(root, WORKFLOW_FILE), next);
+      log.push(`edit   ${WORKFLOW_FILE} (${releaseRepo ? `release-repo: ${releaseRepo}` : 'release-repo removed'})`);
+    }
+  }
   put('.github/workflows/upgrade-kit.yml', fill(tpl('upgrade-caller.yml')));
 
   // Load the kit config first thing in the root layout (an import is hoisted, so this is safe to prepend).
@@ -293,7 +336,8 @@ export function run(argv, root = process.cwd(), { exec, lastSteps = true, wiring
   const pluginWasThere = plugins.some((p) => (Array.isArray(p) ? p[0] : p) === PKG);
   if (!pluginWasThere) plugins.push(PKG);
   expo.plugins = plugins;
-  expo.extra = { ...expo.extra, otaBaseUrl: expo.extra?.otaBaseUrl ?? otaBaseUrl };
+  // --release-repo moves the bundles to that repo's Pages, so it replaces an older value; otherwise an existing one is kept.
+  expo.extra = { ...expo.extra, otaBaseUrl: releaseRepoFlag !== undefined && !flag('ota-base-url') ? otaBaseUrl : expo.extra?.otaBaseUrl ?? otaBaseUrl };
   // The build plugin reads these to allow cleartext (http) traffic for a local site, and only for those hosts.
   if (site) {
     expo.extra.mobileKit = { ...expo.extra.mobileKit, sites: { production: site, ...(devSite ? { development: devSite } : {}) } };
@@ -352,7 +396,7 @@ export function run(argv, root = process.cwd(), { exec, lastSteps = true, wiring
       benchSite,
       backendRepo,
       appName: name,
-      githubRepo: repo,
+      githubRepo: publishRepo,
       otaBaseUrl,
       hasApp: !!bench && existsSync(join(bench, 'apps', BACKEND_APP)),
     });
@@ -377,7 +421,7 @@ export function run(argv, root = process.cwd(), { exec, lastSteps = true, wiring
     }
     if (devSite) {
       // Production lives on its own server: never touched from here, only told what to run.
-      const prod = backendPlan({ benchSite: new URL(site).hostname, backendRepo, appName: name, githubRepo: repo, otaBaseUrl });
+      const prod = backendPlan({ benchSite: new URL(site).hostname, backendRepo, appName: name, githubRepo: publishRepo, otaBaseUrl });
       log.push('', `Production (${site}): run these in the bench on that server, then restart it:`);
       for (const step of prod) log.push(`  ${commandLine(step.argv)}`);
     }
@@ -406,7 +450,8 @@ export function run(argv, root = process.cwd(), { exec, lastSteps = true, wiring
     'Last steps:',
     native && !native.ok ? `  1. ${FIX_COMMAND}   (REQUIRED: the native modules are not installed yet)` : '  1. (the native modules are installed)',
     "  2. In the root layout wrap the app in <MobileKitProvider> (import it from '@upande/mobile-kit'); the config import is already added.",
-    `  3. Enable GitHub Pages for the gh-pages branch of ${repo} (the first release creates it), then run \`npx upande-mobile-kit verify${site ? ` --site ${site}${devSite ? ` --dev-site ${devSite}` : ''}` : ''}\`.`,
+    `  3. Enable GitHub Pages for the gh-pages branch of ${publishRepo} (the first release creates it), then run \`npx upande-mobile-kit verify${site ? ` --site ${site}${devSite ? ` --dev-site ${devSite}` : ''}` : ''}\`.`,
+    ...(releaseRepo ? releaseRepoSteps({ repo, releaseRepo }) : []),
     '',
     openBlock({ root, route: routes.settings, file: settingsFile }),
     '',

@@ -27,6 +27,15 @@ name: Mobile release (reusable)
 #
 # Either way the bump is committed, tagged and given a GitHub Release.
 #
+# `release-repo` (optional): publish to a separate PUBLIC repository instead of
+# this one. For a private source repo (phones read releases and Pages without
+# logging in) and for one app per branch (each branch gets its own release repo,
+# so a phone is never offered another client's APK). The GitHub Release, the APK
+# and the gh-pages OTA bundles go there, tagged v<version>; the bump commit still
+# goes to this branch, and its tag here is <branch>/v<version> so branches of one
+# repo never collide. Needs the secret RELEASE_REPO_TOKEN: a fine-grained token
+# with Contents read and write on the release repo only.
+#
 # The app must have @upande/mobile-kit installed (the CLI does the versioning
 # and the OTA export) and `expo.extra.otaBaseUrl` set in app.json.
 on:
@@ -59,7 +68,15 @@ on:
         required: false
         type: string
         default: '22'
+      release-repo:
+        description: owner/repo of a separate PUBLIC repo that receives the releases and OTA bundles (needs RELEASE_REPO_TOKEN); empty = this repo
+        required: false
+        type: string
+        default: ''
     secrets:
+      RELEASE_REPO_TOKEN:
+        description: Token with Contents read and write on release-repo (only used when release-repo is set)
+        required: false
       ANDROID_KEYSTORE_BASE64:
         required: false
       ANDROID_KEYSTORE_PASSWORD:
@@ -100,6 +117,55 @@ jobs:
         with:
           fetch-depth: 0
 
+      # ── Where the release goes ──────────────────────────────────────────────
+      #
+      # Without release-repo: this repo, plain v<version> tags, as always. With
+      # it, everything phones and the server read goes to that repo, and the tag
+      # here is <branch>/v<version>. The built-in token cannot write to another
+      # repo, so RELEASE_REPO_TOKEN is checked first, before anything is built.
+      - name: Check the release repository
+        id: dest
+        env:
+          RELEASE_REPO: ${{ inputs.release-repo }}
+          RELEASE_REPO_TOKEN: ${{ secrets.RELEASE_REPO_TOKEN }}
+          BRANCH: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          if [ -z "$RELEASE_REPO" ]; then
+            { echo "repo=$GITHUB_REPOSITORY"; echo "external=false"; echo "tag_prefix="; } >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if ! [[ "$RELEASE_REPO" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]]; then
+            echo "::error::release-repo must look like owner/repo (got '$RELEASE_REPO')."
+            exit 1
+          fi
+          if [ "${RELEASE_REPO,,}" = "${GITHUB_REPOSITORY,,}" ]; then
+            echo "::error::release-repo is this repository itself. Leave it empty to publish here, or name a separate public repository."
+            exit 1
+          fi
+          if [ -z "$RELEASE_REPO_TOKEN" ]; then
+            echo "::error::release-repo is $RELEASE_REPO, but the secret RELEASE_REPO_TOKEN is not set (or the caller does not pass secrets: inherit). Create a fine-grained token with Contents: read and write on $RELEASE_REPO only, and save it in $GITHUB_REPOSITORY under Settings > Secrets and variables > Actions as RELEASE_REPO_TOKEN."
+            exit 1
+          fi
+          if ! info=$(GH_TOKEN="$RELEASE_REPO_TOKEN" gh api "repos/$RELEASE_REPO" 2>/dev/null); then
+            echo "::error::RELEASE_REPO_TOKEN cannot see $RELEASE_REPO: the repository does not exist, or the token does not include it."
+            exit 1
+          fi
+          if [ "$(jq -r .private <<<"$info")" = "true" ]; then
+            echo "::warning::$RELEASE_REPO is private: phones get no APK offers and the server cannot read its Pages. Make it public."
+          fi
+          # Write access: a dry-run push asks GitHub for push rights and sends nothing. The empty extraheader drops the
+          # checkout's own credentials, so only the token is offered.
+          basic=$(printf 'x-access-token:%s' "$RELEASE_REPO_TOKEN" | base64 -w0)
+          echo "::add-mask::$basic"
+          if ! git -c http.https://github.com/.extraheader= -c "http.https://github.com/.extraheader=AUTHORIZATION: basic $basic" \
+              push --dry-run --quiet "https://github.com/$RELEASE_REPO.git" HEAD:refs/heads/mobile-kit-write-check 2>/dev/null; then
+            echo "::error::RELEASE_REPO_TOKEN cannot write to $RELEASE_REPO. Give the token Contents: read and write on that repository."
+            exit 1
+          fi
+          { echo "repo=$RELEASE_REPO"; echo "external=true"; echo "tag_prefix=$BRANCH/"; } >> "$GITHUB_OUTPUT"
+          echo "Releases go to $RELEASE_REPO (tag v<version>); the tag in $GITHUB_REPOSITORY is $BRANCH/v<version>."
+
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ inputs.node-version }}
@@ -117,18 +183,23 @@ jobs:
           BUMP: ${{ inputs.bump }}
           SET_VERSION: ${{ inputs.set_version }}
           BUILD_APK: ${{ inputs.build_apk }}
+          TAG_PREFIX: ${{ steps.dest.outputs.tag_prefix }}
         run: |
           set -euo pipefail
           # `auto` is passed through: the CLI reads the commit messages ([apk], [native], ...) and decides.
           to=(--bump "${BUMP:-auto}")
           [ -n "$SET_VERSION" ] && to=(--set "$SET_VERSION")
           [ "$BUILD_APK" = "true" ] && to+=(--apk)
+          # This branch's tags (<branch>/v*) with a release repo, plain v* without: the previous release is found by it.
+          to+=(--tag-prefix "$TAG_PREFIX")
           npx upande-mobile-kit version --json "${to[@]}" > version.json
           cat version.json
           npx upande-mobile-kit version --apply "${to[@]}"
           {
             echo "version=$(jq -r .version version.json)"
             echo "tag=$(jq -r .tag version.json)"
+            # `// .tag`: an app whose installed kit predates release-repo has no releaseTag (and no prefix).
+            echo "release_tag=$(jq -r '.releaseTag // .tag' version.json)"
             echo "version_code=$(jq -r .versionCode version.json)"
             echo "runtime=$(jq -r .runtimeVersion version.json)"
             echo "release=$(jq -r .release version.json)"
@@ -139,9 +210,10 @@ jobs:
         env:
           RELEASE: ${{ steps.version.outputs.release }}
           REASON: ${{ steps.version.outputs.reason }}
+          TAG_PREFIX: ${{ steps.dest.outputs.tag_prefix }}
         run: |
           set -euo pipefail
-          npx upande-mobile-kit version --keep-version --notes > RELEASE_NOTES.md
+          npx upande-mobile-kit version --keep-version --notes --tag-prefix "$TAG_PREFIX" > RELEASE_NOTES.md
           kind=OTA
           [ "$RELEASE" = "apk" ] && kind=APK
           printf '\n**Release type:** %s (reason: %s)\n' "$kind" "$REASON" >> RELEASE_NOTES.md
@@ -173,6 +245,7 @@ jobs:
         run: npx upande-mobile-kit publish-ota
 
       - name: Publish the JS update to GitHub Pages
+        if: steps.dest.outputs.external != 'true'
         uses: peaceiris/actions-gh-pages@v4
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
@@ -180,6 +253,19 @@ jobs:
           destination_dir: ota
           # Other runtimes' bundles must survive: devices still on 1.0 keep
           # asking for /ota/android/1.0/ long after 1.1 exists.
+          keep_files: true
+          commit_message: 'ota: ${{ steps.version.outputs.version }} (runtime ${{ steps.version.outputs.runtime }})'
+
+      # The same, to the release repo's gh-pages (its Pages serve otaBaseUrl).
+      - name: Publish the JS update to the release repository's GitHub Pages
+        if: steps.dest.outputs.external == 'true'
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          personal_token: ${{ secrets.RELEASE_REPO_TOKEN }}
+          external_repository: ${{ steps.dest.outputs.repo }}
+          publish_branch: gh-pages
+          publish_dir: ./ota
+          destination_dir: ota
           keep_files: true
           commit_message: 'ota: ${{ steps.version.outputs.version }} (runtime ${{ steps.version.outputs.runtime }})'
 
@@ -336,6 +422,8 @@ jobs:
         id: bump
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          EXTERNAL: ${{ steps.dest.outputs.external }}
+          TAG: ${{ steps.version.outputs.tag }}
         run: |
           set -euo pipefail
           git config user.name "github-actions[bot]"
@@ -358,8 +446,16 @@ jobs:
           # GitHub can refuse a tag pushed with the workflow token (a release whose history includes an edit to a
           # file under .github/workflows is rejected without the `workflows` permission, as "remote rejected (failed)").
           # That must not lose the release: the release step below creates the tag itself, through the API, at this commit.
-          if ! git push origin "${{ steps.version.outputs.tag }}"; then
-            echo "::warning::Pushing the tag ${{ steps.version.outputs.tag }} was rejected; the GitHub Release step will create it instead."
+          if ! git push origin "$TAG"; then
+            if [ "$EXTERNAL" != "true" ]; then
+              echo "::warning::Pushing the tag $TAG was rejected; the GitHub Release step will create it instead."
+            # With a release repo the Release is made there, so this repo's tag (what the next release counts from) is
+            # created here through the API instead.
+            elif gh api "repos/$GITHUB_REPOSITORY/git/refs" -f ref="refs/tags/$TAG" -f sha="$(git rev-parse HEAD)" > /dev/null; then
+              echo "::warning::Pushing the tag $TAG was rejected; it was created through the API instead."
+            else
+              echo "::warning::Could not create the tag $TAG in $GITHUB_REPOSITORY; the next release will count commits from an older tag."
+            fi
           fi
 
       # Whoever downloads the APK is the one who has to trust it, so the signing
@@ -381,8 +477,11 @@ jobs:
         if: steps.version.outputs.release == 'apk'
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ steps.version.outputs.tag }}
-          target_commitish: ${{ steps.bump.outputs.sha }}
+          # This repo, or the release repo (plain v<version> there; its default branch, since the commit lives here).
+          repository: ${{ steps.dest.outputs.repo }}
+          token: ${{ steps.dest.outputs.external == 'true' && secrets.RELEASE_REPO_TOKEN || github.token }}
+          tag_name: ${{ steps.version.outputs.release_tag }}
+          target_commitish: ${{ steps.dest.outputs.external != 'true' && steps.bump.outputs.sha || '' }}
           name: ${{ inputs.app-name }} ${{ steps.version.outputs.version }}
           body_path: RELEASE_NOTES.md
           files: |
@@ -395,8 +494,10 @@ jobs:
         if: steps.version.outputs.release == 'ota'
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ steps.version.outputs.tag }}
-          target_commitish: ${{ steps.bump.outputs.sha }}
+          repository: ${{ steps.dest.outputs.repo }}
+          token: ${{ steps.dest.outputs.external == 'true' && secrets.RELEASE_REPO_TOKEN || github.token }}
+          tag_name: ${{ steps.version.outputs.release_tag }}
+          target_commitish: ${{ steps.dest.outputs.external != 'true' && steps.bump.outputs.sha || '' }}
           name: ${{ inputs.app-name }} ${{ steps.version.outputs.version }} (OTA)
           body_path: RELEASE_NOTES.md
           # An OTA release has no APK: keep "latest" on the newest APK release so
@@ -404,20 +505,28 @@ jobs:
           make_latest: false
 
       - name: Job summary
+        env:
+          REPO: ${{ steps.dest.outputs.repo }}
+          EXTERNAL: ${{ steps.dest.outputs.external }}
+          TAG: ${{ steps.version.outputs.tag }}
+          RELEASE_TAG: ${{ steps.version.outputs.release_tag }}
         run: |
           {
-            echo "### Released \`${{ steps.version.outputs.tag }}\`"
+            echo "### Released \`$RELEASE_TAG\`"
             echo
             echo "- Runtime \`${{ steps.version.outputs.runtime }}\`, versionCode \`${{ steps.version.outputs.version_code }}\`"
+            if [ "$EXTERNAL" = "true" ]; then
+              echo "- Published to the release repository \`$REPO\`; tagged \`$TAG\` in this repository"
+            fi
             if [ "${{ steps.version.outputs.release }}" = "ota" ]; then
-              echo "- Shipped as a JS update on GitHub Pages: ota/android/${{ steps.version.outputs.runtime }}/manifest.json on the gh-pages branch (no APK)"
+              echo "- Shipped as a JS update on GitHub Pages: ota/android/${{ steps.version.outputs.runtime }}/manifest.json on the gh-pages branch of $REPO (no APK)"
             else
-              echo "- APK: https://github.com/${{ github.repository }}/releases/download/${{ steps.version.outputs.tag }}/${{ steps.apk.outputs.path }}"
+              echo "- APK: https://github.com/$REPO/releases/download/$RELEASE_TAG/${{ steps.apk.outputs.path }}"
               if [ "${{ steps.signing.outputs.signed }}" = "true" ]; then
                 echo "- Signing: upload key"
               else
                 echo "- Signing: **debug key** (no signing secrets configured)"
               fi
             fi
-            echo "- https://github.com/${{ github.repository }}/releases/tag/${{ steps.version.outputs.tag }}"
+            echo "- https://github.com/$REPO/releases/tag/$RELEASE_TAG"
           } >> "$GITHUB_STEP_SUMMARY"

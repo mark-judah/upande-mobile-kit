@@ -6,6 +6,9 @@
  *   --site https://your.site      probe the production site (default: from app.json / src/mobile-kit.ts)
  *   --dev-site http://localhost:8000   and the development site (unreachable is only a warning)
  *
+ * With a release repository (`release-repo` in the workflow) it also checks that repo the way a phone does: public,
+ * has releases with an APK, and serves the OTA manifest on its Pages.
+ *
  * It is a superset of `doctor`: routes (files, collisions, a link to them),
  * provider and config order, config completeness (stand-ins, who owns
  * the biometric lock), native modules, and whether a phone can reach the sites.
@@ -16,9 +19,9 @@ import { detectHostBiometric, STAND_IN_EFFECT } from './adapters.mjs';
 import { KIT_REPO } from './constants.mjs';
 import { describeMissing, FIX_COMMAND, hostOwnsBiometric, moduleStatus, skipFor } from './native-modules.mjs';
 import { configuredRoutes, findCollisions, findLegacyKitFiles, isKitFile, linkedFrom, rootLayoutFile, routeFileFor } from './routes.mjs';
-import { probeSite, reachabilityChecks, sitesFrom } from './site-checks.mjs';
+import { probeReleaseRepo, probeSite, reachabilityChecks, sitesFrom } from './site-checks.mjs';
 import { parseVersion } from './version-lib.mjs';
-import { workflowChecks } from './workflow.mjs';
+import { callerReleaseRepo, releaseRepoChecks, workflowChecks } from './workflow.mjs';
 
 const PKG = '@upande/mobile-kit';
 /** @returns {Promise<{ level: 'ok'|'warn'|'fail', msg: string, fix?: string }[]>} */
@@ -136,6 +139,10 @@ export async function verify(root = process.cwd(), { site, devSite, fetchImpl = 
   // The release workflow: pinned to a kit version, and able to build an APK by hand.
   if (!existsSync(join(root, '.github/workflows/release.yml'))) add('warn', '.github/workflows/release.yml is missing: pushes will not release (no OTA, no APK)', 'npx upande-mobile-kit init');
   for (const w of workflowChecks(root)) add(w.level, w.msg, w.fix);
+  // A separate release repo: the phones and the server read it, so it must be public, have releases and serve Pages.
+  out.push(...releaseRepoChecks(root));
+  const releaseRepo = callerReleaseRepo(root)?.releaseRepo;
+  if (releaseRepo) out.push(...(await probeReleaseRepo(releaseRepo, expo, fetchImpl)));
 
   const sites = sitesFrom(root, { site, devSite }, expo);
   if (!sites.production) add('warn', 'no site configured to check', 'pass --site https://your.site or run npx upande-mobile-kit init');

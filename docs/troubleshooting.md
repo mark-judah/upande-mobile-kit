@@ -13,6 +13,8 @@ Find the symptom, read the fix.
 | `Run workflow` has no `build_apk` box | The workflow file is from an older kit | `npx upande-mobile-kit init --update-workflow`, commit and push |
 | The upgrade pull request is not opened | "Allow GitHub Actions to create and approve pull requests" is off | Turn it on, then run **Upgrade the kit** by hand |
 | The upgrade pull request did not move the workflow pins | No `KIT_UPGRADE_TOKEN` secret (the built-in token cannot edit workflow files) | Add the secret, or run `init --update-workflow` once |
+| The release stops at "Check the release repository" | `release-repo` is set but `RELEASE_REPO_TOKEN` is missing, does not include that repo, or lacks Contents write | The error names which. Save the token in the source repo (not the releases repo); see [Private source and one app per branch](releasing.md#private-source-and-one-app-per-branch) |
+| A client's phone is offered another client's APK | Several branches of one repo publish to the same Releases | Give each branch its own releases repo: `init --release-repo` on that branch |
 | The workflow fails at `npm ci` | `package-lock.json` is missing or out of date | Run `npm install` and commit the lockfile |
 | The workflow fails pushing the version commit | The release branch is protected | Allow `github-actions[bot]` to push to it |
 | No OTA update arrives | The app is not registered and enabled on the production site; the runtime does not match; Pages is off for a private repo; the site cannot be reached | `verify --site <production>`; on the server run `register_app`; check the release's runtime equals `expo.runtimeVersion` |

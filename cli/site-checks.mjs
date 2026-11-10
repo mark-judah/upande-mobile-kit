@@ -99,3 +99,44 @@ export function reachabilityChecks(expo, sites) {
   }
   return out;
 }
+
+/**
+ * The release repository, read the way a phone and the server read it: without logging in. Public, with releases (one
+ * carrying an APK), and its Pages serving the manifest of the app's current runtime. Results are `{ level, msg, fix }`.
+ */
+export async function probeReleaseRepo(repo, expo = {}, fetchImpl = globalThis.fetch) {
+  const out = [];
+  const add = (level, msg, fix) => out.push({ level, msg, fix });
+  const doc = 'docs/releasing.md, "Private source and one app per branch"';
+  try {
+    const res = await fetchImpl(`https://api.github.com/repos/${repo}/releases?per_page=30`, {
+      signal: AbortSignal.timeout(10000),
+      headers: { Accept: 'application/vnd.github+json' },
+    });
+    if (res.status === 404) add('fail', `the release repository ${repo} does not exist or is private: phones read it without logging in`, `create ${repo} as a PUBLIC repository (${doc})`);
+    else if (res.status === 403 || res.status === 429) add('warn', `GitHub refused to list the releases of ${repo} (${res.status}, probably the hourly limit for unauthenticated calls)`, 'run verify again later');
+    else if (!res.ok) add('warn', `GitHub answered ${res.status} for the releases of ${repo}`, 'run verify again later');
+    else {
+      const list = (await res.json()).filter((r) => r && !r.draft);
+      const withApk = list.filter((r) => (r.assets ?? []).some((a) => /\.apk$/i.test(a.name ?? '')));
+      if (!list.length) add('warn', `the release repository ${repo} has no releases yet`, 'push to the release branch; the first release must be an APK (Actions > Release > Run workflow, tick build_apk)');
+      else if (!withApk.length) add('warn', `${repo} has ${list.length} release(s) but none with an APK, so phones are offered nothing to install`, 'Actions > Release > Run workflow, tick build_apk');
+      else add('ok', `${repo} is public and has ${list.length} release(s); the newest APK is ${withApk[0].tag_name}.`);
+    }
+  } catch (e) {
+    add('warn', `could not reach api.github.com to check ${repo}: ${e.message}`, 'check the network and run verify again');
+  }
+  const base = String(expo.extra?.otaBaseUrl ?? '').replace(/\/+$/, '');
+  const runtime = typeof expo.runtimeVersion === 'string' ? expo.runtimeVersion : '';
+  if (base && runtime) {
+    const url = `${base}/android/${runtime}/manifest.json`;
+    try {
+      const res = await fetchImpl(url, { signal: AbortSignal.timeout(10000) });
+      if (res.ok) add('ok', `the OTA manifest for runtime ${runtime} is served at ${url}.`);
+      else add('warn', `${url} answered ${res.status}: GitHub Pages is off on ${repo}, or no release has published runtime ${runtime} yet`, `${repo} > Settings > Pages > Deploy from a branch > gh-pages, / (root); then push a release`);
+    } catch (e) {
+      add('warn', `could not fetch ${url}: ${e.message}`, 'check the network and run verify again');
+    }
+  }
+  return out;
+}

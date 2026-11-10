@@ -2,7 +2,7 @@
 
 Updates, device management, monitoring and support for Expo apps, backed by a Frappe site. Push your code and GitHub Actions ships it to phones, as an over-the-air update or a new APK, with no Expo (EAS) account. Installed from this GitHub repository by tag. The backend is [`upande_mobile`](https://github.com/mark-judah/upande-mobile).
 
-**Needs:** an Expo SDK 54+ app using expo-router, Node 20+, npm with a committed `package-lock.json`, a Frappe 16 site, and a public GitHub repository for the app. Android only.
+**Needs:** an Expo SDK 54+ app using expo-router, Node 20+, npm with a committed `package-lock.json`, a Frappe 16 site, and a public GitHub repository for the app (or a private one plus a [public releases repo](docs/releasing.md#private-source-and-one-app-per-branch)). Android only.
 
 ## Do this once
 
@@ -43,11 +43,12 @@ git add -A && git commit -m "feat: add the mobile kit" && git push
 |---|---|---|---|---|
 | 1 | **Read and write permissions**, and **Allow GitHub Actions to create and approve pull requests** | Settings > Actions > General > Workflow permissions | Releases cannot push their version commit and tag, and **kit upgrades never open their pull request** | Run **Actions > Upgrade the kit > Run workflow**. A red "not permitted to create or approve pull requests" means it is off |
 | 2 | **GitHub Pages** from branch `gh-pages`, folder `/ (root)` (after the first push has created the branch) | Settings > Pages | OTA bundles are served from a fallback address instead of Pages | Open `https://<owner>.github.io/<repo>/ota/android/<runtime>/manifest.json`. A 404 means it is off |
-| 3 | **A public repository** (or at least public releases) | Settings > General > Danger zone | Phones get **no APK offers** and no OTA | Open the repo's Releases page in a private browser window |
+| 3 | **A public repository** (or at least public releases), or a public releases repo (8) | Settings > General > Danger zone | Phones get **no APK offers** and no OTA | Open the repo's Releases page in a private browser window |
 | 4 | **Allow all actions** | Settings > Actions > General > Actions permissions | The workflows do not run | The Actions tab shows runs after a push |
 | 5 | **Signing key** (recommended): the four `ANDROID_KEY*` secrets | Settings > Secrets and variables > Actions | The APK is signed with Android's public debug key. Switching to a real key later forces every phone to uninstall first | The run summary says which key signed the APK. [How to create one](docs/setup.md#4-set-up-github-then-make-the-first-release-an-apk) |
 | 6 | **Let `github-actions[bot]` push** to the release branch, if it requires pull requests | Settings > Branches | The release cannot commit the version bump | A failed run at "push" |
 | 7 | **`KIT_UPGRADE_TOKEN`** (optional) | Settings > Secrets and variables > Actions | Upgrade pull requests change the kit but not the workflow files | The pull request says whether the workflow pins were moved |
+| 8 | **A releases repo**, only for a private source repo or one app per branch: a public repo, a fine-grained token with Contents read and write on it saved here as `RELEASE_REPO_TOKEN`, then `init --release-repo owner/repo` | GitHub (new repo), then Settings > Secrets and variables > Actions | A private repo: no APK offers, no OTA. One repo with a branch per client: phones are offered another client's APK | The run summary says "Published to the release repository". [Details](docs/releasing.md#private-source-and-one-app-per-branch) |
 
 ### D. Make the first release an APK
 
@@ -66,6 +67,7 @@ No phone has the kit yet, so the first release must be a native build. **Actions
 | **See what a push will do**, before pushing | Commit, then `npx upande-mobile-kit version` |
 | **Undo a bad update** | Revert the commit and push. The next release publishes the old code as a new version |
 | **Release an exact version** | **Actions > Release > Run workflow**, fill **set_version** |
+| **Ship a client branch, or a private repo** | Once per branch: a public releases repo, the `RELEASE_REPO_TOKEN` secret, `npx upande-mobile-kit init --release-repo owner/repo`. Then push as usual. [How](docs/releasing.md#private-source-and-one-app-per-branch) |
 | **Find out who is behind** | The [IT dashboard](docs/features.md#the-it-dashboard) at `https://your.site/it-dashboard`, or the in-app [Devices page](docs/features.md#the-devices-page) |
 
 You never choose OTA or APK yourself, and you never bump a version. Commit markers (`[apk]`, `[native]`, `[major]`, `[ota]`) only force an outcome; [what they do](docs/releasing.md#commit-messages).
@@ -77,7 +79,7 @@ You never choose OTA or APK yourself, and you never bump a version. Commit marke
 | A push produced no release | The change only touched `*.md` or `docs/`. Or the workflow is disabled (C4). Or the run failed: open **Actions** |
 | A release built no APK and you expected one | Read the reason in the run summary. Native change in a file the kit does not know: list it in `app.json`, or add `[apk]` to a commit |
 | A release built an APK you did not expect | The reason names the file or package. A file in no list builds an APK to be safe; list it under `release.ota` |
-| Phones get no update | The app is not registered on the server (A), the repo is private (C3), or the runtime does not match. Run `npx upande-mobile-kit verify --site <production>` |
+| Phones get no update | The app is not registered on the server (A), the repo is private (C3, or use C8), or the runtime does not match. Run `npx upande-mobile-kit verify --site <production>` |
 | The APK will not install ("package appears to be invalid") | It is signed with a different key than the installed app. Sign every release with one key (C5), or uninstall once and install fresh |
 | No upgrade pull request | C1 is off |
 | Tapping Install does nothing | The installed build predates kit 0.17: use **Download in your browser instead**, then install |

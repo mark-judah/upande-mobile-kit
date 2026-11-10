@@ -16,10 +16,11 @@ import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { buildAdapters, detectHost, detectHostBiometric, inferMode } from './adapters.mjs';
 import { backupNote, createBackup } from './backup.mjs';
-import { NATIVE_MODULES } from './constants.mjs';
+import { NATIVE_MODULES, REPO_RE } from './constants.mjs';
+import { callerReleaseRepo } from './workflow.mjs';
 import { detectPackageManager, FIX_COMMAND, missingModules, skipFor, METRO_NOTE } from './native-modules.mjs';
 import { installNativeModules } from './native-install.mjs';
-import { openBlock, rebuildBlock, repoFromRemote, run as plainInit, wiringReport } from './init.mjs';
+import { openBlock, rebuildBlock, releaseRepoSteps, repoFromRemote, run as plainInit, wiringReport } from './init.mjs';
 import {
   appDir,
   DEFAULT_ROUTES,
@@ -306,7 +307,7 @@ export async function createIo() {
 
 /* ───────────────────────────── the wizard ───────────────────────────── */
 
-const VALUE_FLAGS = ['site', 'dev-site', 'bench', 'bench-site', 'backend-repo', 'kit-repo', 'name', 'repo', 'ota-base-url', 'apk-name', 'branch', 'settings-route', 'devices-route', 'biometric'];
+const VALUE_FLAGS = ['site', 'dev-site', 'bench', 'bench-site', 'backend-repo', 'kit-repo', 'name', 'repo', 'ota-base-url', 'apk-name', 'branch', 'release-repo', 'settings-route', 'devices-route', 'biometric'];
 
 const sh = (root, ...args) => {
   try {
@@ -458,6 +459,21 @@ async function wizard({ argv, root, flag, yes, noInstall, io, doctorFn }) {
     }),
   );
 
+  // A separate public repo for the releases. Asked only where it is likely to matter: off main/master (one app per
+  // branch), or when one is already set; otherwise it is the --release-repo flag. A blank answer publishes to `repo`.
+  const branchNow = flag('branch') ?? sh(root, 'rev-parse', '--abbrev-ref', 'HEAD');
+  const existingReleaseRepo = saved.releaseRepo ?? callerReleaseRepo(root)?.releaseRepo ?? '';
+  const askReleaseRepo = flag('release-repo') === undefined && (existingReleaseRepo || (branchNow && !['main', 'master', 'HEAD'].includes(branchNow)));
+  const releaseRepo = askReleaseRepo
+    ? await resolveValue({
+        def: existingReleaseRepo,
+        question: `Separate PUBLIC repo for the releases, for a private source or one app per branch (owner/repo; blank = publish to ${repo})`,
+        validate: (v) => (!REPO_RE.test(v) ? 'Use the form owner/repo' : v.toLowerCase() === repo.toLowerCase() ? 'That is the source repo itself; leave it blank instead' : ''),
+        optional: true,
+      })
+    : flag('release-repo') ?? existingReleaseRepo;
+  const publishRepo = releaseRepo || repo;
+
   // The kit's pages live under /mobile-kit/, so nothing of the app's collides: no choices to make. A page
   // already served there (it should not happen) is the only thing that stops us, before anything is written.
   const routes = {};
@@ -572,7 +588,7 @@ async function wizard({ argv, root, flag, yes, noInstall, io, doctorFn }) {
   say(fileLine(settingsFile, ['create', 'exists, kept']));
   say(fileLine(devicesFile, ['create', 'exists, kept']));
   say(fileLine('src/mobile-kit.ts', ['create', 'exists, kept; only the site line is updated']));
-  say(fileLine('.github/workflows/release.yml', ['create', 'exists, kept']));
+  say(fileLine('.github/workflows/release.yml', ['create', releaseRepo || existingReleaseRepo ? 'exists, kept; only the release-repo line is set' : 'exists, kept']));
   say('  • app.json  (edit: plugin, updates.url, runtimeVersion, extra.otaBaseUrl, extra.mobileKit.sites)');
   say('  • package.json  (edit: helper scripts)');
   say(layoutRel ? `  • ${layoutRel}  (edit: import the kit config, wrap in <MobileKitProvider>; the original is backed up to ${backup.relDir}/)` : '  • no root layout found: you add <MobileKitProvider> by hand');
@@ -581,6 +597,11 @@ async function wizard({ argv, root, flag, yes, noInstall, io, doctorFn }) {
   say(doNative ? `  • native modules (always installed, SDK-aware via expo install): ${missingNow.length ? 'expo install adds: ' + (toAdd.join(', ') || '(nothing new)') : 'all present, nothing to install'}` : `  • NOT installing the native modules (--no-install); the app is incomplete until you run ${FIX_COMMAND}. Missing: ${missingNow.join(', ') || 'nothing'}`);
   if (doNative && present.length) say(`  • expo install may CHANGE the versions of: ${present.map((m) => `${m} ${depsBefore[m]}`).join(', ')} (the diff is printed afterwards)`);
   say(`  Sites: production ${site}${devSite ? `, dev ${devSite}` : ''}`);
+  say(
+    releaseRepo
+      ? `  Releases: published to ${releaseRepo} (APKs, OTA bundles on its Pages); tags in ${repo} are ${branchNow || '<branch>'}/v<version>`
+      : `  Releases: published to ${repo}`,
+  );
   say(`  Pages: Settings at ${routes.settings}, Devices at ${routes.devices}`);
   say(`  Biometric lock: owned by ${biometric === 'host' ? 'YOUR app (it already uses expo-local-authentication; the kit adds none)' : 'the kit'}`);
   say(
@@ -605,6 +626,7 @@ async function wizard({ argv, root, flag, yes, noInstall, io, doctorFn }) {
   const expoBefore = readExpo(root);
   const initArgs = ['--name', name, '--repo', repo, '--site', site, '--settings-route', routes.settings, '--devices-route', routes.devices, '--biometric', biometric];
   if (devSite) initArgs.push('--dev-site', devSite);
+  if (releaseRepo || existingReleaseRepo || flag('release-repo') !== undefined) initArgs.push('--release-repo', releaseRepo);
   for (const f of ['ota-base-url', 'apk-name', 'branch', 'kit-repo', 'backend-repo']) if (flag(f)) initArgs.push(`--${f}`, flag(f));
   if (installBackend) {
     initArgs.push('--bench-site', benchSite);
@@ -659,6 +681,7 @@ async function wizard({ argv, root, flag, yes, noInstall, io, doctorFn }) {
     installBackend,
     bench: installBackend ? bench : saved.bench,
     benchSite: installBackend ? benchSite : saved.benchSite,
+    releaseRepo,
     authFile: wire.auth && !detectHost(root).auth ? wire.auth.file : saved.authFile,
     authExport: wire.auth && !detectHost(root).auth ? wire.auth.exportName : saved.authExport,
   });
@@ -687,7 +710,8 @@ async function wizard({ argv, root, flag, yes, noInstall, io, doctorFn }) {
   if (block) log.push(block, '');
   log.push(openBlock({ root, route: routes.settings, file: settingsFile }), '', METRO_NOTE);
   if (backup.files.length) log.push('', backupNote(backup));
-  log.push('', 'Next:', `  • npx upande-mobile-kit verify   (checks routes, provider, wiring, native modules, sites and cleartext, with a fix per failure)`, '  • enable GitHub Pages for the gh-pages branch of ' + repo + ' once the first release creates it');
+  log.push('', 'Next:', `  • npx upande-mobile-kit verify   (checks routes, provider, wiring, native modules, sites and cleartext, with a fix per failure)`, '  • enable GitHub Pages for the gh-pages branch of ' + publishRepo + ' once the first release creates it');
+  if (releaseRepo) log.push(...releaseRepoSteps({ repo, releaseRepo }).map((l) => l.replace(/^  \d\. /, '  • ')));
   if (!native.ok) log.push('', native.lines[native.lines.length - 1]); // last thing printed, so it cannot be missed
   return `${log.join('\n')}\n`;
 }

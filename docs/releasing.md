@@ -13,6 +13,8 @@ Pushing to your release branch starts the workflow, except for changes that only
 3. if the release is an APK, runs `expo prebuild` and Gradle to build a signed (or debug-signed) APK;
 4. commits `chore(release): <version> [skip ci]`, tags `v<version>`, and creates the GitHub Release.
 
+With a [release repository](#private-source-and-one-app-per-branch), steps 2 and 4 publish to that repo instead, and the tag in your own repo is `<branch>/v<version>`.
+
 An APK release takes about 14 minutes. The workflow times out after 45 minutes and runs queue behind each other. Do not start your own commit message with `chore(release):`; the workflow ignores those to avoid loops.
 
 ## How it decides: OTA or APK
@@ -62,7 +64,7 @@ Both default to 0. If you set `runtimeMajorBase`, set the same value as `upande_
 
 ## Commit messages
 
-The kit reads the commit messages since the last `v*` tag (subject and body, any letter case) for markers in square brackets. You rarely need them: they are overrides.
+The kit reads the commit messages since the last release tag (`v*`, or `<branch>/v*` with a [release repository](#private-source-and-one-app-per-branch); subject and body, any letter case) for markers in square brackets. You rarely need them: they are overrides.
 
 | Marker | Effect |
 |---|---|
@@ -131,6 +133,47 @@ curl -X POST -H "Authorization: Bearer $GITHUB_TOKEN" -H "Accept: application/vn
 - **`gh-pages` branch:** `ota/android/<runtime>/manifest.json`, the bundle and its assets. Older runtimes are kept.
 - **The run summary and the Release:** the release type and its reason, runtime, `versionCode`, the APK link, and whether it was signed with your key or the debug key.
 - **Workflow artifacts:** the APK is also kept for 90 days, even if a later step fails.
+
+- **With a release repository** all of the above is in that repo, and your own repo gets only the version commit and a `<branch>/v<version>` tag. See the next section.
+
+## Private source and one app per branch
+
+By default the releases are published from the app's own repository. Two cases need a separate one:
+
+- **The source repo is private.** Phones read the Releases without logging in and the Frappe site reads the OTA files from public Pages, so a private repo gets no APK offers and no OTA.
+- **One branch per client in one repo** (`kaitet`, `mutara`, ...), each with its own `release.yml`. Every branch would publish into the same Releases list, the same `gh-pages` and the same `v1.0.1` tags, so a phone of one client is offered another client's newest APK.
+
+The fix is one **public releases repository per app and branch**, for example `owner/my-app-mutara-releases`. It holds only built things: the GitHub Releases with the APKs, and the OTA bundles on its `gh-pages`. Your code stays private where it is. Once per app and branch:
+
+1. **Create the releases repo.** On GitHub, a new **public** repository, with a README (so it has a branch). Nothing else goes in it by hand.
+2. **Create a token** that can write to it, and to nothing else: **Settings > Developer settings > Fine-grained tokens > Generate new token**, resource owner the owner of the releases repo, **Only select repositories** with just that repo, and **Repository permissions > Contents: Read and write**. (A GitHub App installation token with the same permission works too.)
+3. **Store it in the source repo** as an Actions secret named `RELEASE_REPO_TOKEN`: **Settings > Secrets and variables > Actions > New repository secret**. Do it on the source repo, not the releases repo. The caller passes it on with `secrets: inherit`.
+4. **Run init on the branch** with the releases repo:
+
+   ```bash
+   git checkout mutara
+   npx upande-mobile-kit init --release-repo owner/my-app-mutara-releases
+   ```
+
+   The wizard asks for it too when you are not on `main` or `master`. It sets `githubRepo` in `src/mobile-kit.ts` and `extra.otaBaseUrl` in `app.json` to the releases repo, adds `release-repo: owner/my-app-mutara-releases` to `.github/workflows/release.yml`, and prints the `register_app` command with the releases repo as `github_repo`. Run that on the server, then commit and push.
+5. **Turn on Pages in the releases repo** after the first release has created its `gh-pages`: **Settings > Pages > Deploy from a branch > `gh-pages`, `/ (root)`**.
+
+What changes with `release-repo` set:
+
+| | Without | With `release-repo` |
+|---|---|---|
+| GitHub Release and APK | this repo, tag `v1.2.3` | the releases repo, tag `v1.2.3` |
+| OTA bundles | this repo's `gh-pages` | the releases repo's `gh-pages` |
+| Version commit | this branch | this branch (unchanged) |
+| Tag in this repo | `v1.2.3` | `<branch>/v1.2.3`, so branches never collide |
+| Previous release (commit markers, native changes) | the newest `v*` tag | the newest `<branch>/v*` tag; before the first one, the newest `v*` |
+
+- The release checks the token first, before anything is built, and stops with the reason if it is missing, cannot see the repo or cannot write to it.
+- The release notes leave out the "Full changelog" link, which would point into the private source repo.
+- `verify` checks the releases repo the way a phone does (public, releases with an APK, the manifest on Pages); `verify` and `doctor` warn when `githubRepo` or `otaBaseUrl` point somewhere else than `release-repo`.
+- `init --update-workflow` keeps the `release-repo` line. `--release-repo ''` removes it and publishes from the source repo again.
+- Phones need no change: they read `githubRepo`. An APK built before the switch still looks in the old repo, so ship the first APK after the switch and install it once, the same as the first release.
+- Each branch needs its own releases repo and its own run of `init` on that branch. One token may cover several releases repos.
 
 ## When a release fails
 

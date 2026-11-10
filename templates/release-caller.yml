@@ -44,4 +44,5 @@ jobs:
       bump: ${{ inputs.bump || 'auto' }}
       set_version: ${{ inputs.set_version || '' }}
       build_apk: ${{ inputs.build_apk || false }}
+      # release-repo: owner/my-app-releases   # private source or one app per branch: publish to this public repo (docs/releasing.md)
     secrets: inherit

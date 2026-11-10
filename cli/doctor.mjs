@@ -10,7 +10,7 @@ import { join } from 'node:path';
 import { describeMissing, FIX_COMMAND, hostOwnsBiometric, moduleStatus, skipFor } from './native-modules.mjs';
 import { probeSite } from './site-checks.mjs';
 import { configuredRoutes, findCollisions, findLegacyKitFiles, isKitFile, rootLayoutFile, routeFileFor } from './routes.mjs';
-import { workflowChecks } from './workflow.mjs';
+import { releaseRepoChecks, workflowChecks } from './workflow.mjs';
 import { parseVersion } from './version-lib.mjs';
 
 const PKG = '@upande/mobile-kit';
@@ -90,6 +90,7 @@ export async function check(root = process.cwd(), { site, devSite, fetchImpl = g
   if (existsSync(join(root, '.github/workflows/release.yml'))) {
     add('ok', 'release workflow present.');
     for (const w of workflowChecks(root)) if (w.level !== 'ok') add(w.level, `${w.msg} — fix: ${w.fix}.`);
+    for (const w of releaseRepoChecks(root)) add(w.level, w.level === 'ok' ? w.msg : `${w.msg} — fix: ${w.fix}.`);
   } else add('warn', '.github/workflows/release.yml missing.');
 
   for (const [label, target] of [['production', site], ['development', devSite]]) {

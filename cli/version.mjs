@@ -9,6 +9,12 @@
  *   upande-mobile-kit version --apk           # build an APK for this release too (same runtime)
  *   upande-mobile-kit version --set 1.0.0     # start a numbering line at a version
  *   upande-mobile-kit version --keep-version --notes   # release notes for the current version
+ *   upande-mobile-kit version --tag-prefix kaitet/      # tags of this branch are kaitet/v1.2.3 (see below)
+ *
+ * Tags: normally `v<version>`. When the release workflow publishes to a separate release repository (`release-repo`
+ * in .github/workflows/release.yml), the source repo's tags carry the branch, `<branch>/v<version>`, so client branches
+ * of one repo never collide; the previous release is then this branch's newest `<branch>/v*` tag, else the newest plain
+ * `v*` (from before the switch). The prefix comes from --tag-prefix (the workflow passes it), else from the caller file.
  *
  * app.json -> expo.version is the single source of truth; package.json is kept
  * in sync. Optional offsets live in app.json -> expo.extra.mobileKit
@@ -18,19 +24,35 @@ import { execFileSync } from 'node:child_process';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { classifyFiles, ensureMobileKitConfig, fileReasons, nativeSurface, releaseLists, surfaceDiff } from './release-rules.mjs';
+import { callerReleaseRepo } from './workflow.mjs';
 import {
   decideRelease,
   nativeChanges,
   nextVersion,
+  normaliseTagPrefix,
   offsetsFrom,
   parseCommit,
   parseVersion,
+  previousTagPatterns,
   releaseKind,
   releaseNotes,
   releaseReason,
   runtimeVersionFor,
+  sourceTag,
+  tagPrefixFor,
   versionCodeFor,
 } from './version-lib.mjs';
+
+/**
+ * The source repo's tag prefix: `--tag-prefix` wins (the workflow passes `<branch>/` or ''), else the caller workflow
+ * decides: with a `release-repo` its branch names the tags, without one there is no prefix.
+ */
+export function tagPrefixOf(argv, root) {
+  const i = argv.indexOf('--tag-prefix');
+  if (i !== -1) return normaliseTagPrefix(argv[i + 1]);
+  const caller = callerReleaseRepo(root);
+  return caller?.releaseRepo ? tagPrefixFor(caller.branch) : '';
+}
 
 export function run(argv, root = process.cwd()) {
   const appJsonPath = resolve(root, 'app.json');
@@ -50,7 +72,15 @@ export function run(argv, root = process.cwd()) {
       return '';
     }
   };
-  const lastTag = () => git('describe', '--tags', '--abbrev=0', '--match', 'v[0-9]*') || null;
+  const tagPrefix = tagPrefixOf(argv, root);
+  // This branch's newest tag first; without a prefix that is simply the newest reachable v* tag, as always.
+  const lastTag = () => {
+    for (const pattern of previousTagPatterns(tagPrefix)) {
+      const found = git('describe', '--tags', '--abbrev=0', '--match', pattern);
+      if (found) return found;
+    }
+    return null;
+  };
   const commitsSince = (tag) => {
     const raw = git('log', tag ? `${tag}..HEAD` : 'HEAD', '--no-merges', '--format=%H%x1f%s%x1f%b%x1e');
     if (!raw) return [];
@@ -136,7 +166,7 @@ export function run(argv, root = process.cwd()) {
     // none (the installed APK is assumed to match), so later releases are compared with a real baseline.
     if (surface && (kind === 'apk' || !mk.nativeBaseline)) {
       const next = { ...appConfig.expo.extra.mobileKit, nativeBaseline: surface };
-      if (kind === 'apk') next.apkTag = `v${version}`;
+      if (kind === 'apk') next.apkTag = sourceTag(version, tagPrefix);
       appConfig.expo.extra = { ...appConfig.expo.extra, mobileKit: next };
     }
     // A static-hosting update URL carries the runtime in its path, so it moves with it.
@@ -149,7 +179,7 @@ export function run(argv, root = process.cwd()) {
     writeFileSync(pkgJsonPath, `${JSON.stringify(pkg, null, 2)}\n`);
   }
 
-  if (hasFlag('notes')) return releaseNotes(version, commits, tag, process.env.GITHUB_REPOSITORY);
+  if (hasFlag('notes')) return releaseNotes(version, commits, tag, process.env.GITHUB_REPOSITORY, { tagPrefix });
   if (hasFlag('json')) {
     return `${JSON.stringify(
       {
@@ -162,7 +192,10 @@ export function run(argv, root = process.cwd()) {
         reason,
         forceApk,
         bump,
-        tag: `v${version}`,
+        // `tag` goes on the source repo; `releaseTag` names the GitHub Release (the same unless there is a release repo).
+        tag: sourceTag(version, tagPrefix),
+        releaseTag: `v${version}`,
+        tagPrefix,
         previousTag: tag,
         commitCount: commits.length,
         breaking: commits.filter((c) => c.breaking).length,
@@ -174,6 +207,7 @@ export function run(argv, root = process.cwd()) {
   return (
     `${currentVersion} -> ${version} (${bump}, versionCode ${versionCode}, ` +
     `${commits.length} commit${commits.length === 1 ? '' : 's'} since ${tag ?? 'the beginning'})\n` +
-    `release: ${kind === 'apk' ? 'APK' : 'OTA'} - ${reason}\n`
+    `release: ${kind === 'apk' ? 'APK' : 'OTA'} - ${reason}\n` +
+    (tagPrefix ? `tags: ${sourceTag(version, tagPrefix)} in this repo, v${version} in the release repository\n` : '')
   );
 }

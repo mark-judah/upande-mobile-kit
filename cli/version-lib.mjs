@@ -252,7 +252,36 @@ export const SECTIONS = [
   ['chore', 'Chores'],
 ];
 
-export function releaseNotes(version, commits, tag, repo) {
+/**
+ * Tags when releases go to a separate release repository (`release-repo` in the workflow). Several client branches of one
+ * source repo each release their own app, so a plain `v1.2.3` would collide between them: the SOURCE repo's tags carry the
+ * branch (`kaitet/v1.2.3`), and the release repo, which holds one app only, keeps the plain `v1.2.3` the phones read.
+ * Without a release repo the prefix is '' and every tag is the plain `v1.2.3`, as before.
+ */
+export function tagPrefixFor(branch) {
+  const b = String(branch ?? '').trim();
+  return b ? `${b.replace(/\/+$/, '')}/` : '';
+}
+
+/** A tag prefix as given (`--tag-prefix`), normalised to end in one `/`; '' stays ''. Throws on what git refuses. */
+export function normaliseTagPrefix(prefix) {
+  const p = String(prefix ?? '').trim().replace(/\/+$/, '');
+  if (!p) return '';
+  if (/[\s~^:?*[\\]|\.\.|@\{|^\/|\/\/|\.lock\/?$/.test(p)) throw new Error(`Not a usable tag prefix: ${p}`);
+  return `${p}/`;
+}
+
+/** The tag of `version` in the source repo (`<prefix>v1.2.3`). */
+export const sourceTag = (version, prefix = '') => `${prefix}v${version}`;
+
+/**
+ * `git describe --match` patterns for the previous release, in order of preference: this branch's own tags first, then
+ * plain `v*` tags (the releases made before the branch moved to a release repo). Branch names cannot hold `*`, `?` or `[`,
+ * so the prefix is safe inside a glob.
+ */
+export const previousTagPatterns = (prefix = '') => (prefix ? [`${prefix}v[0-9]*`, 'v[0-9]*'] : ['v[0-9]*']);
+
+export function releaseNotes(version, commits, tag, repo, { tagPrefix = '' } = {}) {
   const line = (c) => `- ${c.scope ? `**${c.scope}:** ` : ''}${c.description} (${c.hash.slice(0, 7)})`;
   const out = [`## v${version}`, ''];
   const notes = commits.flatMap(userNotes);
@@ -266,6 +295,7 @@ export function releaseNotes(version, commits, tag, repo) {
   const other = commits.filter((c) => !c.breaking && !SECTIONS.some(([type]) => type === c.type));
   if (other.length) out.push('### Other', '', ...other.map(line), '');
   if (commits.length === 0) out.push('_No commits since the previous release._', '');
-  if (repo && tag) out.push(`**Full changelog:** https://github.com/${repo}/compare/${tag}...v${version}`, '');
+  // With a release repo the notes are public but the source repo is (usually) private: no link into it.
+  if (repo && tag && !tagPrefix) out.push(`**Full changelog:** https://github.com/${repo}/compare/${tag}...v${version}`, '');
   return out.join('\n');
 }

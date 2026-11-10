@@ -33,6 +33,7 @@ The wizard detects your app name, GitHub repo, package manager and any local ben
 | Production site URL | always | Your live Frappe site, for example `https://your.site`. Release builds use it |
 | Local/dev site URL | always, optional | For example `http://localhost:8000`. Blank means dev builds use production too |
 | GitHub repo (owner/repo) | only if there is no git `origin` | The repo that will publish releases |
+| Separate public repo for the releases | only off `main`/`master`, or when one is already set | Blank, or `owner/repo` of a public [releases repository](releasing.md#private-source-and-one-app-per-branch) for a private source repo or one app per branch |
 | Install the Frappe backend on a bench on this machine? | always | Yes if you have a local bench. It then asks which bench folder and site |
 | Your auth hook file and its exported name | only if it cannot find your sign-in state | For example `src/store/auth.ts` and `useAuthStore`. Blank skips it |
 | Your API client file | only if `axios` is installed and it cannot find the client | The file exporting a function named `api`. Blank skips it |
@@ -88,7 +89,7 @@ Once per repository:
 
 1. **Actions.** Enable workflows in the **Actions** tab. Under **Settings > Actions > General > Actions permissions**, allow all actions (the workflow uses `actions/*`, `peaceiris/actions-gh-pages`, `softprops/action-gh-release`, `gradle/actions`, `android-actions/setup-android` and `peter-evans/create-pull-request`). If your organisation restricts actions to a list, add those.
 2. **Workflow permissions.** **Settings > Actions > General > Workflow permissions > Read and write permissions**, and tick **Allow GitHub Actions to create and approve pull requests** (the [kit upgrade](releasing.md#upgrading-the-kit) needs it). Save.
-3. **Public releases.** Keep the repo, or at least its releases, public. Phones check `api.github.com` for new APKs without logging in, and your Frappe site reads the OTA files from public URLs. A private repo gets no APK offers.
+3. **Public releases.** Keep the repo, or at least its releases, public. Phones check `api.github.com` for new APKs without logging in, and your Frappe site reads the OTA files from public URLs. A private repo gets no APK offers. If the source must stay private, or you keep one app per branch, publish to a separate public repo instead: see [Private source and one app per branch](releasing.md#private-source-and-one-app-per-branch). Steps 3 and 4 then apply to that repo, and you add the `RELEASE_REPO_TOKEN` secret here.
 4. **GitHub Pages**, after the first workflow run has created `gh-pages`: **Settings > Pages > Source: Deploy from a branch > Branch `gh-pages`, folder `/ (root)`**. OTA files are then served at `https://<owner>.github.io/<repo>/ota/android/<runtime>/manifest.json`, which is what `extra.otaBaseUrl` points at. Until Pages is on, your Frappe site falls back to `raw.githubusercontent.com`, so OTA can already work for a public repo.
 5. **Android signing (optional, recommended).** Without it the APK is signed with Android's public debug key. Add these under **Settings > Secrets and variables > Actions**:
 

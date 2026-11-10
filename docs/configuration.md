@@ -23,7 +23,7 @@ Release settings (offsets, the `apk` and `ota` lists) live in `app.json` under `
 | Key | Default | Meaning |
 |---|---|---|
 | `appName` | required | The Mobile App name on the server and the app's title |
-| `githubRepo` | required | `owner/repo` whose Releases carry the APKs |
+| `githubRepo` | required | `owner/repo` whose Releases carry the APKs: the app's repo, or its [releases repository](releasing.md#private-source-and-one-app-per-branch) |
 | `site` | none | Site URL, or `{ production, development }` |
 | `environment` | from `__DEV__` | `'development'` or `'production'` to pin the choice |
 | `useAuth` | stand-in | `() => ({ isSystemManager, user, instanceUrl, biometricEnabled, setBiometricEnabled, roles?, fullName?, email?, logout?, forgetDevice? })` |
@@ -151,14 +151,15 @@ Everything else is automatic: pushes release by themselves, and a pull request u
 | `--site URL`, `--dev-site URL` | Production and development sites |
 | `--bench PATH`, `--bench-site NAME` | Install the backend on this bench and site |
 | `--name "My App"` | Mobile App name (default `expo.name`) |
-| `--repo owner/repo` | GitHub repo that publishes releases (default: git origin) |
-| `--ota-base-url URL` | Where bundles are served (default: the repo's GitHub Pages `ota` folder) |
+| `--repo owner/repo` | The app's source repo on GitHub (default: git origin) |
+| `--release-repo owner/repo` | Publish releases, APKs and OTA bundles to this separate public repo ([Private source and one app per branch](#private-source-and-one-app-per-branch)). `''` removes it |
+| `--ota-base-url URL` | Where bundles are served (default: the GitHub Pages `ota` folder of the releases repo, else of the repo) |
 | `--apk-name my_app` | APK file name stem (default: your app name in snake case) |
 | `--branch main` | Release branch (default: the current branch) |
 | `--biometric host\|kit` | Who owns the biometric lock (default: detected) |
 | `--backend-repo URL`, `--kit-repo owner/repo` | For forks of the backend or the kit |
 | `--no-adapters` | Do not look for your auth store, API client and storage |
-| `--update-workflow` | Rewrite only the workflow files to the installed kit's version (adding `upgrade-kit.yml` if missing), keeping app name, APK name and branch |
+| `--update-workflow` | Rewrite only the workflow files to the installed kit's version (adding `upgrade-kit.yml` if missing), keeping app name, APK name, branch and `release-repo` |
 | `--no-backup` | Do not copy changed files into `.upande-mobile-kit/backup/` |
 | `--force` | Overwrite files that exist |
 | `--settings-route PATH`, `--devices-route PATH` | Rarely needed: other paths for the kit's pages |
@@ -168,3 +169,15 @@ Without a terminal and without `--yes`, `init` stops and lists the flags to pass
 ```bash
 npx upande-mobile-kit init --yes --site https://your.site --dev-site http://localhost:8000 --bench /path/to/bench --bench-site my.site
 ```
+
+## Private source and one app per branch
+
+A private source repo, or one repo with a branch per client, publishes to a separate **public releases repository** per app and branch. In short:
+
+1. Create a public repo, for example `owner/my-app-mutara-releases`, with a README.
+2. Create a fine-grained token with **Contents: Read and write** on only that repo.
+3. Save it in the source repo as the Actions secret `RELEASE_REPO_TOKEN`.
+4. On the branch, run `npx upande-mobile-kit init --release-repo owner/my-app-mutara-releases`, run the `register_app` line it prints on the server, commit and push.
+5. After the first release, turn on Pages for `gh-pages` in the releases repo.
+
+`init` writes the releases repo into `githubRepo`, `extra.otaBaseUrl` and the `release-repo` input of `.github/workflows/release.yml` (remembered in `upande-mobile-kit.json`). Tags in the source repo become `<branch>/v<version>`. The details are in [Shipping updates](releasing.md#private-source-and-one-app-per-branch).
