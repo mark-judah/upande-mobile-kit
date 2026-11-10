@@ -323,7 +323,7 @@ A release takes about 14 minutes when it builds an APK. The workflow times out a
 
 ### The kit decides APK or OTA for you
 
-You do not have to remember a marker. Every release checks two things, and builds an APK on a **new runtime** (a minor release) when either says so:
+You do not have to remember a marker, and there is no command to run: **`app.json` is the one place for these settings.** `init` and the first release add `expo.extra.mobileKit` with every setting and a comment (the `_help` lines; JSON has no comments), leaving anything already there alone. Every release checks two things, and builds an APK on a **new runtime** (a minor release) when either says so:
 
 1. **The native surface.** Each dependency that carries native code (an `android/` or `ios/` folder, an Expo module or a config plugin) is recorded with its installed version, plus the kit's own native modules and plugins, the `patches/` folder and the native fields of `app.json` (name, scheme, icon, splash, plugins, `android`, `ios`). The record is saved in `app.json` (`expo.extra.mobileKit.nativeBaseline`) whenever an APK is built. If what is installed now differs, the release is an APK. This catches a kit upgrade that brings a new native module, and libraries no name pattern would catch. It needs `node_modules`, which the workflow has after `npm ci`.
 2. **The files that changed since the last APK.** List folders or files, as globs, in `app.json`:

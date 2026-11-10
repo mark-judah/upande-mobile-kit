@@ -651,7 +651,11 @@ test('init records the sites under expo.extra.mobileKit.sites without disturbing
   const { root } = makeApp({}, { expo: { extra: { mobileKit: { versionCodeBase: 100000, runtimeMajorBase: 100 }, other: 1 } } });
   init([...flags, '--dev-site', 'http://localhost:8000'], root);
   const extra = JSON.parse(readFileSync(join(root, 'app.json'), 'utf8')).expo.extra;
-  assert.deepEqual(extra.mobileKit, { versionCodeBase: 100000, runtimeMajorBase: 100, sites: { production: 'https://erp.example.com', development: 'http://localhost:8000' } });
+  // the offsets and sites are kept as given; init also adds the release lists and a comment for them (nothing is overwritten)
+  const { _help, release, ...settings } = extra.mobileKit;
+  assert.deepEqual(settings, { versionCodeBase: 100000, runtimeMajorBase: 100, sites: { production: 'https://erp.example.com', development: 'http://localhost:8000' } });
+  assert.match(_help, /live here/);
+  assert.deepEqual([release.apk, release.ota], [[], []]);
   assert.equal(extra.other, 1);
   const { root: prodOnly } = makeApp();
   init(flags, prodOnly);

@@ -22,6 +22,7 @@
  *   --no-backup              do not copy the files init changes into .upande-mobile-kit/backup/
  *   --force                  overwrite files that exist
  */
+import { ensureMobileKitConfig } from './release-rules.mjs';
 import { execFileSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
@@ -296,6 +297,8 @@ export function run(argv, root = process.cwd(), { exec, lastSteps = true, wiring
   if (site) {
     expo.extra.mobileKit = { ...expo.extra.mobileKit, sites: { production: site, ...(devSite ? { development: devSite } : {}) } };
   }
+  // Every setting the kit reads, with a comment (release lists, offsets), so there is one place to look.
+  ensureMobileKitConfig(appJson);
   if (site) {
     expo.updates = {
       enabled: true,

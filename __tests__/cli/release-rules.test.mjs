@@ -213,3 +213,33 @@ test('an APK release saves the new baseline and its tag, so the next release com
   p.commit('fix: after the apk');
   assert.equal(p.plan().release, 'ota');
 });
+
+/* ───────────── app.json carries every setting, with a comment ───────────── */
+
+import { ensureMobileKitConfig } from '../../cli/release-rules.mjs';
+
+test('ensureMobileKitConfig adds the release lists, the offsets and a comment, keeps what is there, and is idempotent', () => {
+  const cfg = { expo: { name: 'A', extra: { otaBaseUrl: 'x', mobileKit: { sites: { production: 'https://s' }, versionCodeBase: 100000, release: { ota: ['assets/**'] } } } } };
+  assert.equal(ensureMobileKitConfig(cfg), true);
+  const mk = cfg.expo.extra.mobileKit;
+  assert.match(mk._help, /live here/);
+  assert.match(mk.release._help, /APK or OTA/);
+  assert.deepEqual(mk.release.apk, []);
+  assert.deepEqual(mk.release.ota, ['assets/**']);
+  assert.equal(mk.versionCodeBase, 100000);
+  assert.equal(mk.runtimeMajorBase, 0);
+  assert.deepEqual(mk.sites, { production: 'https://s' });
+  assert.equal(cfg.expo.extra.otaBaseUrl, 'x');
+  assert.equal(ensureMobileKitConfig(cfg), false);
+  assert.equal(ensureMobileKitConfig({}), false);
+});
+
+test('an APK release through `version --apply` writes the block and still saves the baseline', () => {
+  const p = project();
+  p.commit('fix: first');
+  p.apply();
+  const mk = p.cfg().expo.extra.mobileKit;
+  assert.ok(mk.release && Array.isArray(mk.release.apk));
+  assert.ok(mk.nativeBaseline.hash);
+  assert.deepEqual(releaseLists(p.cfg()), { apk: [], ota: [] });
+});

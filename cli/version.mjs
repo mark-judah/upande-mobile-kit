@@ -17,7 +17,7 @@
 import { execFileSync } from 'node:child_process';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { classifyFiles, fileReasons, nativeSurface, releaseLists, surfaceDiff } from './release-rules.mjs';
+import { classifyFiles, ensureMobileKitConfig, fileReasons, nativeSurface, releaseLists, surfaceDiff } from './release-rules.mjs';
 import {
   decideRelease,
   nativeChanges,
@@ -124,6 +124,8 @@ export function run(argv, root = process.cwd()) {
   const reason = releaseReason({ kind, runtime: runtimeVersion, currentRuntime: appConfig.expo.runtimeVersion, decision });
 
   if (hasFlag('apply')) {
+    // Every setting the kit reads, with a comment, in app.json (added when missing, never overwritten).
+    ensureMobileKitConfig(appConfig);
     appConfig.expo.version = version;
     appConfig.expo.android = { ...appConfig.expo.android, versionCode };
     // expo-updates refuses a bundle whose runtime does not match the installed
@@ -133,7 +135,7 @@ export function run(argv, root = process.cwd()) {
     // Remember the native surface the APK carries. It is saved by every APK release, and once by the first release that has
     // none (the installed APK is assumed to match), so later releases are compared with a real baseline.
     if (surface && (kind === 'apk' || !mk.nativeBaseline)) {
-      const next = { ...mk, nativeBaseline: surface };
+      const next = { ...appConfig.expo.extra.mobileKit, nativeBaseline: surface };
       if (kind === 'apk') next.apkTag = `v${version}`;
       appConfig.expo.extra = { ...appConfig.expo.extra, mobileKit: next };
     }

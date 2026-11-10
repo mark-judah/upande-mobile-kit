@@ -185,3 +185,41 @@ export function fileReasons({ apk, unknown }) {
   }
   return out;
 }
+
+const HELP_KIT =
+  'All of the kit\'s settings for this app live here. Edit the lists under "release"; the kit manages nativeBaseline and apkTag itself.';
+const HELP_RELEASE =
+  'Decides APK or OTA for you. "apk": folders/files (globs) that need a new APK when they change, e.g. "modules/**". "ota": folders/files that are safe over the air, e.g. "assets/fonts/**". ' +
+  'Built in: app/**, src/**, tests, docs, *.md are OTA; android/**, ios/**, patches/**, plugins/** are APK. A changed file in neither list builds an APK to be safe, and the release says which file to list.';
+
+/**
+ * Puts every setting the kit reads into app.json -> expo.extra.mobileKit with a comment, so there is one place to look and
+ * nothing to remember. Adds what is missing, never changes what is there. Returns true when it changed anything.
+ * (JSON has no comments, and the files are rewritten by tools, so the comments are `_help` strings the kit ignores.)
+ */
+export function ensureMobileKitConfig(appConfig) {
+  if (!appConfig?.expo) return false;
+  const before = JSON.stringify(appConfig);
+  const expo = appConfig.expo;
+  expo.extra = { ...(expo.extra ?? {}) };
+  const old = expo.extra.mobileKit ?? {};
+  const release = { ...(old.release ?? {}) };
+  const nextRelease = {
+    _help: HELP_RELEASE,
+    apk: Array.isArray(release.apk) ? release.apk : [],
+    ota: Array.isArray(release.ota) ? release.ota : [],
+  };
+  const { _help: _h1, release: _r, ...rest } = old;
+  const next = { _help: HELP_KIT, ...rest };
+  if (!('versionCodeBase' in next)) next.versionCodeBase = 0;
+  if (!('runtimeMajorBase' in next)) next.runtimeMajorBase = 0;
+  next.release = nextRelease;
+  // keep the kit-managed records last
+  for (const k of ['nativeBaseline', 'apkTag']) if (k in next) {
+    const v = next[k];
+    delete next[k];
+    next[k] = v;
+  }
+  expo.extra.mobileKit = next;
+  return JSON.stringify(appConfig) !== before;
+}
