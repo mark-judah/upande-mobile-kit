@@ -271,6 +271,7 @@ export function run(argv, root = process.cwd(), { exec, lastSteps = true, wiring
     log.push(`note   ${ownSettings.length ? `your /settings is untouched (${ownSettings[0].file})` : 'nothing of yours uses /settings'}; the kit lives at ${routes.settings}`);
   }
   put('.github/workflows/release.yml', fill(tpl('release-caller.yml')).replace('branches: [main]', `branches: [${branch}]`));
+  put('.github/workflows/upgrade-kit.yml', fill(tpl('upgrade-caller.yml')));
 
   // Load the kit config first thing in the root layout (an import is hoisted, so this is safe to prepend).
   const layoutRel = ['tsx', 'jsx', 'js'].map((e) => `${appDir(root)}/_layout.${e}`).find((r) => existsSync(join(root, r)));

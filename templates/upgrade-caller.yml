@@ -1,0 +1,19 @@
+name: Upgrade the kit
+
+# Opens a pull request when a newer @upande/mobile-kit is out. Merge it to upgrade; nothing to run by hand.
+# One-time: Settings > Actions > General > "Allow GitHub Actions to create and approve pull requests".
+# Optional secret KIT_UPGRADE_TOKEN (fine-grained token: Contents, Pull requests, Workflows read/write) lets the pull
+# request also move the workflow pins; without it only the dependency and lockfile change.
+on:
+  schedule:
+    - cron: '0 6 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  upgrade:
+    uses: __KIT_REPO__/.github/workflows/upgrade.yml@__WORKFLOW_REF__
+    secrets: inherit

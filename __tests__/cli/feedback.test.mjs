@@ -810,7 +810,7 @@ test('verify via the binary: one line per check, a fix on every ✗ and !, exit 
   assert.ok(lines.length >= 8, r.stdout);
   for (const l of lines.filter((x) => !x.startsWith('✓'))) assert.match(l, / — fix: /, l);
   assert.match(r.stdout, /\d+ failed, \d+ to look at, \d+ fine\./);
-  assert.match(execFileSync('node', [bin, '--help'], { encoding: 'utf8' }), /verify {8}self-test/);
+  assert.match(execFileSync('node', [bin, '--help'], { encoding: 'utf8' }), /Everything else is automatic[\s\S]*fix, verify, doctor, version, publish-ota/);
 });
 
 test('buildAdapters with nothing found leaves the config hints and lists the three stand-ins', () => {

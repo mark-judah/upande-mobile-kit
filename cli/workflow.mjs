@@ -13,8 +13,15 @@ import { ensureGitignore } from './gitignore.mjs';
 import { KIT_REPO, KIT_VERSION, WORKFLOW_REF } from './constants.mjs';
 
 export const WORKFLOW_FILE = '.github/workflows/release.yml';
+export const UPGRADE_FILE = '.github/workflows/upgrade-kit.yml';
 export const UPDATE_FIX = 'npx upande-mobile-kit init --update-workflow';
 const TEMPLATE = resolve(dirname(fileURLToPath(import.meta.url)), '..', 'templates', 'release-caller.yml');
+const UPGRADE_TEMPLATE = resolve(dirname(fileURLToPath(import.meta.url)), '..', 'templates', 'upgrade-caller.yml');
+
+/** The caller that opens a pull request when a newer kit is out. */
+export function renderUpgradeCaller({ kitRepo = KIT_REPO, ref = WORKFLOW_REF } = {}) {
+  return readFileSync(UPGRADE_TEMPLATE, 'utf8').replaceAll('__KIT_REPO__', kitRepo).replaceAll('__WORKFLOW_REF__', ref);
+}
 
 /** The caller file for these values (the template, filled in). */
 export function renderCaller({ kitRepo = KIT_REPO, ref = WORKFLOW_REF, appName, apkName, branch = 'main' }) {
@@ -98,13 +105,21 @@ export function updateWorkflow(root, argv = []) {
     apkName: c.apkName,
     branch: flag('branch') ?? c.branch ?? 'main',
   });
-  if (next === old) return `${WORKFLOW_FILE} is already up to date (pinned to @${WORKFLOW_REF}).\n`;
+  // The upgrade caller is pinned the same way, and is added to apps that predate it.
+  const upgradeFile = join(root, UPGRADE_FILE);
+  const upgradeNext = renderUpgradeCaller({ kitRepo: flag('kit-repo') ?? c.kitRepo ?? KIT_REPO });
+  const upgradeOld = existsSync(upgradeFile) ? readFileSync(upgradeFile, 'utf8') : null;
+  if (next === old && upgradeNext === upgradeOld) return `${WORKFLOW_FILE} is already up to date (pinned to @${WORKFLOW_REF}).\n`;
   const backup = createBackup(root, !argv.includes('--no-backup'));
   backup.save(WORKFLOW_FILE);
   mkdirSync(dirname(file), { recursive: true });
-  writeFileSync(file, next);
+  if (next !== old) writeFileSync(file, next);
+  if (upgradeNext !== upgradeOld) {
+    if (upgradeOld !== null) backup.save(UPGRADE_FILE);
+    writeFileSync(upgradeFile, upgradeNext);
+  }
   ensureGitignore(root); // the backup folder stays out of git
-  const lines = [`update ${WORKFLOW_FILE}: @${c.ref ?? '?'} -> @${WORKFLOW_REF}${c.hasBuildApk ? '' : ', added the build_apk input'}`, `       kept: app-name "${c.appName}", apk-name ${c.apkName}, branch ${flagBranch(c, flag)}`];
+  const lines = [...(upgradeNext !== upgradeOld ? [`${upgradeOld === null ? 'create' : 'update'} ${UPGRADE_FILE} (opens a pull request when a newer kit is out)`] : []), `update ${WORKFLOW_FILE}: @${c.ref ?? '?'} -> @${WORKFLOW_REF}${c.hasBuildApk ? '' : ', added the build_apk input'}`, `       kept: app-name "${c.appName}", apk-name ${c.apkName}, branch ${flagBranch(c, flag)}`];
   if (backup.files.length) lines.push('', backupNote(backup));
   lines.push('', 'Commit and push it for the new workflow to take effect.');
   return lines.join('\n') + '\n';

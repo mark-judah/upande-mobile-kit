@@ -2,19 +2,19 @@
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { dirname, join } from 'node:path';
 
-const HELP = `upande-mobile-kit <command>
+const HELP = `upande-mobile-kit init
 
-  init          set this Expo app up: asks a few questions, then does the rest   [--yes] [--no-install]
-                (value flags like --site/--dev-site/--bench/--settings-route run the plain, non-interactive init;
-                 --no-backup skips the copies of changed files, --no-adapters skips wiring your auth/api/storage)
-  fix           install/repair the native modules the kit needs (SDK-aware, via expo install)   [--dry-run] [--align] [--yes]
-  verify        self-test: routes, provider, wiring, native modules, sites; a fix per failure   [--site ...] [--dev-site ...]
-  doctor        check the app is set up correctly   [--site https://your.site] [--dev-site http://localhost:8000]
-  version       odometer versioning                 [--apply --json --notes --bump --set --keep-version]
-  release       tag a release of the KIT itself (run in the kit repo)   [patch|minor|major|x.y.z] [--push --dry-run --list --skip-checks]
-  publish-ota   build the JS-only update into ./ota [--out dir]
+  init   set this Expo app up, once: asks a few questions, then does the rest   [--yes] [--no-install]
+         (value flags like --site/--dev-site/--bench/--settings-route run the plain, non-interactive init;
+          --no-backup skips the copies of changed files, --no-adapters skips wiring your auth/api/storage)
 
-Run from the app root (the folder with app.json); "release" runs in the kit repository.
+Everything else is automatic: pushes release by themselves (APK or OTA, decided from what changed), and a pull request
+upgrades the kit when a new one is out. Settings live in app.json under expo.extra.mobileKit.
+
+Run from the app root (the folder with app.json).
+
+Used by the workflows and kept for them (not part of the day-to-day): fix, verify, doctor, version, publish-ota; and
+"release", which tags a release of the kit itself, in the kit repository.
 `;
 
 const [cmd, ...rest] = process.argv.slice(2);

@@ -1,0 +1,99 @@
+name: Upgrade the kit (reusable)
+
+# Opens a pull request that moves an app to the newest release of @upande/mobile-kit, so upgrading is "merge the PR".
+# Call it from the app's .github/workflows/upgrade-kit.yml (written by `init`):
+#
+#   jobs:
+#     upgrade:
+#       uses: <owner>/upande-mobile-kit/.github/workflows/upgrade.yml@v<kit version>
+#       secrets: inherit
+#
+# What the PR changes: the kit dependency and lockfile, the native modules the new kit needs (`fix`), and, when the repo
+# has a KIT_UPGRADE_TOKEN secret, the workflow pins in .github/workflows (GitHub refuses to let the built-in token edit
+# workflow files). Merging it starts the normal release, which decides APK or OTA itself from what changed.
+#
+# One-time repo settings: Settings > Actions > General > "Allow GitHub Actions to create and approve pull requests".
+# Optional secret KIT_UPGRADE_TOKEN: a fine-grained token with Contents, Pull requests and Workflows read/write on this repo.
+on:
+  workflow_call:
+    inputs:
+      kit-repo:
+        description: owner/repo that publishes the kit
+        type: string
+        default: mark-judah/upande-mobile-kit
+      node-version:
+        type: string
+        default: '22'
+    secrets:
+      KIT_UPGRADE_TOKEN:
+        required: false
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  upgrade:
+    runs-on: ubuntu-latest
+    env:
+      KIT_REPO: ${{ inputs.kit-repo }}
+      HAS_TOKEN: ${{ secrets.KIT_UPGRADE_TOKEN != '' }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.KIT_UPGRADE_TOKEN || github.token }}
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ inputs.node-version }}
+          cache: npm
+
+      - name: Find the newest kit release
+        id: kit
+        run: |
+          set -euo pipefail
+          current=$(node -p "((require('./package.json').dependencies||{})['@upande/mobile-kit']||'').split('#v')[1]||''")
+          latest=$(git ls-remote --tags --refs "https://github.com/${KIT_REPO}.git" 'v*' | sed 's#.*refs/tags/v##' | grep -E '^[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -1 || true)
+          echo "installed: ${current:-unknown}, newest: ${latest:-none}"
+          if [ -z "$latest" ] || [ "$latest" = "$current" ]; then
+            echo "upgrade=false" >> "$GITHUB_OUTPUT"
+          elif [ -n "$current" ] && [ "$(printf '%s\n%s\n' "$current" "$latest" | sort -V | tail -1)" = "$current" ]; then
+            echo "upgrade=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "upgrade=true" >> "$GITHUB_OUTPUT"
+            echo "from=${current:-unknown}" >> "$GITHUB_OUTPUT"
+            echo "to=$latest" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Install the new kit
+        if: steps.kit.outputs.upgrade == 'true'
+        # A plain `npm install` does not refresh a git dependency; naming the tag does.
+        run: npm install --no-audit --no-fund "github:${KIT_REPO}#v${{ steps.kit.outputs.to }}"
+
+      - name: Install or remove the native modules the new kit needs
+        if: steps.kit.outputs.upgrade == 'true'
+        run: npx upande-mobile-kit fix --yes
+
+      - name: Move the workflow pins
+        if: steps.kit.outputs.upgrade == 'true' && env.HAS_TOKEN == 'true'
+        run: npx upande-mobile-kit init --update-workflow --no-backup
+
+      - name: Open the pull request
+        if: steps.kit.outputs.upgrade == 'true'
+        uses: peter-evans/create-pull-request@v7
+        with:
+          token: ${{ secrets.KIT_UPGRADE_TOKEN || github.token }}
+          branch: kit-upgrade
+          delete-branch: true
+          commit-message: 'chore: update @upande/mobile-kit to v${{ steps.kit.outputs.to }}'
+          title: 'chore: update @upande/mobile-kit to v${{ steps.kit.outputs.to }}'
+          body: |
+            Moves this app from `@upande/mobile-kit` v${{ steps.kit.outputs.from }} to **v${{ steps.kit.outputs.to }}**.
+
+            - [Release notes](https://github.com/${{ inputs.kit-repo }}/releases/tag/v${{ steps.kit.outputs.to }})
+            - Changed here: the kit dependency and lockfile, and the native modules the new kit needs.
+            - Workflow pins: ${{ env.HAS_TOKEN == 'true' && 'moved to the new version.' || 'NOT moved (no `KIT_UPGRADE_TOKEN` secret, and the built-in token cannot edit workflow files). The release keeps working; add the secret to get workflow fixes too.' }}
+
+            **Merge it.** The next release works out by itself whether this needs a new APK or only an update over the air, and says why in its summary.
+          labels: dependencies

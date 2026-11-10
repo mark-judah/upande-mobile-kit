@@ -472,15 +472,16 @@ curl -X POST \
 
 With the GitHub CLI: `gh workflow run release.yml --ref main -f build_apk=true`.
 
-### Keeping the workflow up to date
+### Upgrading the kit: merge a pull request
 
-`init` writes `.github/workflows/release.yml` pinned to the kit version that wrote it, for example `...release.yml@v0.11.0`. A floating tag would never carry workflow fixes to apps that already have the file, so the pin is exact. After you update the kit, bring the workflow up to date:
+`init` also writes `.github/workflows/upgrade-kit.yml`. Every Monday (or when you press **Run workflow**) it looks for a newer kit release and, if there is one, opens a pull request named `chore: update @upande/mobile-kit to vX.Y.Z`. The pull request changes the kit dependency and lockfile and installs or removes the native modules the new kit needs. **Merge it.** The release that follows works out by itself whether the upgrade needs a new APK or only an update over the air, and says why in its summary. Nothing is run by hand.
 
-```bash
-npx upande-mobile-kit init --update-workflow
-```
+Two one-time settings:
 
-It rewrites only that file, keeps your app name, APK name and branch, saves the old file under `.upande-mobile-kit/backup/` (skip with `--no-backup`), and does nothing if it is already current. Commit and push it. `verify` and `doctor` warn when the workflow is on a floating ref such as `@v0`, is older than the installed kit, or has no `build_apk` input.
+- **Settings > Actions > General > "Allow GitHub Actions to create and approve pull requests"**: turn it on, or the job cannot open the pull request.
+- **Optional secret `KIT_UPGRADE_TOKEN`** (a fine-grained token on this repo with *Contents*, *Pull requests* and *Workflows* read and write). With it the pull request also moves the pins in `.github/workflows/` to the new kit version, so workflow fixes arrive too. Without it GitHub does not let the built-in token edit workflow files, so only the dependency and lockfile change, the release keeps working, and the pull request says the pins were not moved.
+
+The workflow files are pinned to the kit version that wrote them (`...release.yml@v0.18.0`), because a floating tag would send workflow changes to every app at once. For an app whose pins are behind, `npx upande-mobile-kit init --update-workflow` rewrites them (and adds `upgrade-kit.yml` if it is missing); `verify` and `doctor` warn about old pins.
 
 ### Where things end up
 
@@ -908,17 +909,15 @@ Install with `npx expo install <package>` and make a new native build (an OTA up
 
 ## CLI reference
 
-Run all commands from the app root (the folder with `app.json`), except `release`, which runs in the kit's own repository.
+There is one command to know, and you run it once per app:
 
 | Command | What it does |
 |---|---|
 | `npx upande-mobile-kit init` | The setup wizard. Flags below. |
-| `npx upande-mobile-kit fix [--dry-run] [--align] [--yes]` | Installs missing native modules with `expo install`. `--dry-run` only prints the command. `--align` also re-pins installed ones to your SDK's versions. Never prompts. |
-| `npx upande-mobile-kit verify [--site URL] [--dev-site URL]` | Self-test. One line per check (`✓` fine, `!` look at it, `✗` broken), each with a fix. Exits 1 on any `✗`. Checks `app.json`, routes, the provider, the config import, wiring, native modules, that the sites answer, and cleartext. |
-| `npx upande-mobile-kit doctor [--site URL] [--dev-site URL]` | The quick version of `verify`. |
-| `npx upande-mobile-kit version [--apply] [--json] [--notes] [--bump auto\|patch\|minor\|major] [--set X.Y.Z] [--apk] [--keep-version]` | Prints the next version, the release type (OTA or APK) and the reason (a dry run), or with `--apply` writes the version to `app.json` and `package.json`. `--apk` builds an APK for this release on the same runtime. Used by the workflow. |
-| `npx upande-mobile-kit publish-ota [--out dir]` | Builds the OTA bundle into `./ota`. Used by the workflow. |
-| `npx upande-mobile-kit release [patch\|minor\|major\|X.Y.Z] [--push] [--dry-run] [--list] [--skip-checks] [--allow-branch]` | For maintainers, run in the kit's own repository (not in an app): checks, bumps the version, commits and tags `v<version>`. See [For maintainers](#for-maintainers). |
+
+Everything else is automatic: pushes release by themselves (APK or OTA, decided from what changed and from `app.json`), and a pull request upgrades the kit ([above](#upgrading-the-kit-merge-a-pull-request)). Settings live in `app.json` under `expo.extra.mobileKit`.
+
+The remaining commands exist for the workflows and for repair, and are not part of day-to-day use: `fix` (install missing native modules; `--dry-run`, `--align`, `--yes`), `verify` and `doctor` (self-tests), `version` (plan or apply a version bump; run with no flags to preview what a push would do), `publish-ota` (build the OTA bundle) and, in the kit's own repository only, `release` (tag a kit release; `--push`, `--dry-run`, `--list`).
 
 `init` flags. With no value flags it runs the wizard. Any value flag runs the plain, non-interactive version.
 
